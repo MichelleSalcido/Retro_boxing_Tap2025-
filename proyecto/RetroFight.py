@@ -6,13 +6,14 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout,
     QHBoxLayout, QLineEdit, QMessageBox, QToolBar, QTableWidgetItem, QTableWidget, QSizePolicy
 )
-from PySide6.QtGui import QFont, QPixmap, QPalette, QBrush, QPainter, QLinearGradient, QColor
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QFont, QPixmap, QPalette, QBrush, QPainter, QLinearGradient, QColor, QIcon
+from PySide6.QtCore import Qt, QUrl, QSize
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
-# Rutas de recursos (asegúrate de que sean correctas)
+# Rutas de recursos
 RUTA_MUSICA = "proyecto/music/fondo2.mp3"
 RUTA_FONDO = "proyecto/imagenes/fondo_inicio.jpg"
+RUTA_ICONMUSICA = "proyecto/imagenes/musica.png"
 
 # ==================================================
 # Clase base para ventanas con fondo de gradiente
@@ -382,11 +383,22 @@ class Ventanaconfiguracion(GradientWindow):
         btn_regreso.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
         btn_regreso.clicked.connect(self.regresar_principal)
 
+        btn_musica = QPushButton("Musica", self)
+        btn_musica.setIcon(QIcon(RUTA_ICONMUSICA))
+        btn_musica.setIconSize(QSize(200, 80))
+        btn_musica.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
+        btn_regreso.clicked.connect(self.apagar_musica)
+
         layout = QVBoxLayout()
         layout.addWidget(label)
         layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
+        layout.addWidget(btn_musica, alignment=Qt.AlignCenter)
 
         central.setLayout(layout)
+
+    def apagar_musica(self):
+        if hasattr(self, "player") and self.player.isPlaying():
+            self.player.stop()
 
     def regresar_principal(self):
         if self.ventana_principal is not None:
@@ -406,7 +418,7 @@ class Juego(QMainWindow):
         # Mostrar mensaje de bienvenida
         dialogo_bienv = QMessageBox(self)
         dialogo_bienv.setWindowTitle("Bienvenido")
-        dialogo_bienv.setText("BOXING\nJuego realizado por:\nJimena Muñoz\nMichelle Salcido")
+        dialogo_bienv.setText("Retro Fight\nJuego realizado por:\nJimena Muñoz\nMichelle Salcido")
         dialogo_bienv.exec()
 
         self.inicializar_musica()
@@ -474,7 +486,8 @@ class Juego(QMainWindow):
         self.player = QMediaPlayer()
         self.player.setAudioOutput(self.audio_output)
         self.player.setSource(QUrl.fromLocalFile(os.path.abspath(RUTA_MUSICA)))
-        self.player.setLoops(QMediaPlayer.Infinite)
+        self.audio_output.setVolume(50)
+        self.player.setLoops(QMediaPlayer.Loops.Infinite)
         self.player.play()
 
     def iniciar_juego(self):
@@ -484,7 +497,7 @@ class Juego(QMainWindow):
         self.hide()
 
     def acerca_de(self):
-        QMessageBox.information(self, "Acerca de", "BOXING\n Juego creado por las\n -increibles\n -talentosas\n -y creativas\n inges Michelle y Jimena  ")
+        QMessageBox.information(self, "Acerca de", "Retro Fight\n Juego creado por las\n -Increibles\n -Talentosas\n -Y creativas\n Inges Michelle y Jimena  ")
 
     def puntuaciones(self):
         self.ventana_puntuaciones = Ventanapuntuaciones(ventana_principal=self)
