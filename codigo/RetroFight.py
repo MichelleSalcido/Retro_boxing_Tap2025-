@@ -15,9 +15,11 @@ from PySide6.QtCore import Qt, QUrl, QSize, QRect, QTimer, QTime, QPointF
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QSoundEffect
 
 # Rutas de recursos
-RUTA_MUSICA = "proyecto/music/fondo2.mp3"
-RUTA_FONDO = "proyecto/imagenes/fondo_inicio.jpg"
-RUTA_ICONMUSICA = "proyecto/imagenes/musica.png"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'codigo'
+
+RUTA_MUSICA = os.path.join(BASE_DIR, "music", "fondo2.mp3")
+RUTA_FONDO = os.path.join(BASE_DIR, "imagenes", "fondo_inicio.jpg")
+RUTA_ICONMUSICA = os.path.join(BASE_DIR, "imagenes", "musica.png")
 
 # ==================================================
 # Clases del juego (Boxing)
