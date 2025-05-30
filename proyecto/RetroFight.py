@@ -383,7 +383,7 @@ class Ventanaconfiguracion(GradientWindow):
         btn_regreso.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
         btn_regreso.clicked.connect(self.regresar_principal)
 
-        btn_musica = QPushButton("Musica", self)
+        btn_musica = QPushButton(self)
         btn_musica.setIcon(QIcon(RUTA_ICONMUSICA))
         btn_musica.setIconSize(QSize(200, 80))
         btn_musica.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
