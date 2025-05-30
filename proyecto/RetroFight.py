@@ -6,14 +6,13 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout,
     QHBoxLayout, QLineEdit, QMessageBox, QToolBar, QTableWidgetItem, QTableWidget, QSizePolicy
 )
-from PySide6.QtGui import QFont, QPixmap, QPalette, QBrush, QPainter, QLinearGradient, QColor, QIcon
-from PySide6.QtCore import Qt, QUrl, QSize
+from PySide6.QtGui import QFont, QPixmap, QPalette, QBrush, QPainter, QLinearGradient, QColor
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 # Rutas de recursos
 RUTA_MUSICA = "proyecto/music/fondo2.mp3"
 RUTA_FONDO = "proyecto/imagenes/fondo_inicio.jpg"
-RUTA_ICONMUSICA = "proyecto/imagenes/musica.png"
 
 # ==================================================
 # Clase base para ventanas con fondo de gradiente
@@ -383,22 +382,26 @@ class Ventanaconfiguracion(GradientWindow):
         btn_regreso.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
         btn_regreso.clicked.connect(self.regresar_principal)
 
+<<<<<<< HEAD
         btn_musica = QPushButton(self)
         btn_musica.setIcon(QIcon(RUTA_ICONMUSICA))
         btn_musica.setIconSize(QSize(200, 80))
         btn_musica.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
         btn_regreso.clicked.connect(self.apagar_musica)
+=======
+        #btn_musica = QPushButton( self)
+        #btn_musica.setIcon(QIcon(os.path.abspath(RUTA_ICONMUSICA)))
+        #btn_musica.setIconSize(QSize(200, 80))
+        #btn_musica.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
+        #btn_regreso.clicked.connect(self.apagar_musica)
+>>>>>>> c60a949fdf4bcb17541f472b4a6d295fabd362aa
 
         layout = QVBoxLayout()
         layout.addWidget(label)
         layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
-        layout.addWidget(btn_musica, alignment=Qt.AlignCenter)
+        #layout.addWidget(btn_musica, alignment=Qt.AlignCenter)
 
         central.setLayout(layout)
-
-    def apagar_musica(self):
-        if hasattr(self, "player") and self.player.isPlaying():
-            self.player.stop()
 
     def regresar_principal(self):
         if self.ventana_principal is not None:
@@ -411,7 +414,7 @@ class Ventanaconfiguracion(GradientWindow):
 class Juego(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("RETRO FIGTH")
+        self.setWindowTitle("RETRO FIGHT")
         self.setMinimumSize(900, 800)
         self.showMaximized()
 
@@ -486,7 +489,7 @@ class Juego(QMainWindow):
         self.player = QMediaPlayer()
         self.player.setAudioOutput(self.audio_output)
         self.player.setSource(QUrl.fromLocalFile(os.path.abspath(RUTA_MUSICA)))
-        self.audio_output.setVolume(50)
+        self.player.setLoops(QMediaPlayer.Infinite)
         self.player.setLoops(QMediaPlayer.Loops.Infinite)
         self.player.play()
 
