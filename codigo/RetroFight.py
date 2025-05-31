@@ -16,7 +16,6 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QSoundEffect
 from PySide6.QtNetwork import QTcpServer, QTcpSocket, QHostAddress
 from PySide6.QtCore import QObject, Signal
 
-
 # Rutas de recursos
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'codigo'
 
@@ -83,7 +82,7 @@ class Clientejuego(QObject):
     def enviar_datos(self, datos: bytes):
         if self.socket.state() == QTcpSocket.ConnectedState:
             self.socket.write(datos)
-
+#
 # ==================================================
 # Clases del juego (Boxing)
 # ==================================================
