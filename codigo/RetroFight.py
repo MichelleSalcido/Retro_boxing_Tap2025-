@@ -4,8 +4,8 @@ import random
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout,
-    QHBoxLayout, QLineEdit, QMessageBox, QToolBar, QTableWidgetItem, QTableWidget, 
-    QSizePolicy, QProgressBar
+    QHBoxLayout, QLineEdit, QMessageBox, QToolBar, QTableWidgetItem, QTableWidget,
+    QSizePolicy, QProgressBar, QInputDialog
 )
 from PySide6.QtGui import (
     QFont, QPixmap, QPalette, QBrush, QPainter, QLinearGradient, 
@@ -13,6 +13,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtCore import Qt, QUrl, QSize, QRect, QTimer, QTime, QPointF
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QSoundEffect
+from PySide6.QtNetwork import QTcpServer, QTcpSocket, QHostAddress
+from PySide6.QtCore import QObject, Signal
 
 # Rutas de recursos
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'codigo'
@@ -20,6 +22,66 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'cod
 RUTA_MUSICA = os.path.join(BASE_DIR, "music", "fondo2.mp3")
 RUTA_FONDO = os.path.join(BASE_DIR, "imagenes", "fondo_inicio.jpg")
 RUTA_ICONMUSICA = os.path.join(BASE_DIR, "imagenes", "musica.png")
+
+# ==================================================
+# CLASES PARA SERVDOR
+# ==================================================
+class Servidorjuego(QObject):
+    nueva_conexion = Signal(str)
+    datos_recibidos = Signal(bytes)
+
+    def __init__(self, port = 12345):
+        super().__init__()
+        self.server = QTcpServer()
+        self.server.listen(QHostAddress.Any, port)
+        self.server.newConnection.connect(self.aceptar_conexion)
+        self.socket_cliente = None
+
+    def aceptar_conexion(self):
+        if self.socket_cliente is None:
+            self.socket_cliente = self.server.nextPendingConnection()
+            self.socket_cliente.readyRead.connect(self.leer_datos)
+            direccion_ip= self.socket_cliente.peerAddress().toString()
+            self.nueva_conexion.emit(direccion_ip)
+
+    def leer_datos(self):
+        if self.socket_cliente:
+            datos =self.socket_cliente.readAll().data
+            self.datos_recibidos.emit(datos)
+            self.socket_cliente.write(b"Echo: " + datos)
+
+    def enviar_datos(self, datos: bytes):
+        if self.socket_cliente:
+            self.socket_cliente.write(datos)
+
+class Clientejuego(QObject):
+    conectado = Signal()
+    datos_recibidos = Signal(bytes)
+    error_conexion = Signal(str)
+
+    def __init__(self, host: str, port: int= 12345):
+        super().__init__()
+        self.socket = QTcpSocket()
+        self.socket.connected.connect(self.conectado)
+        self.socket.readyRead.connect(self._leer_datos)
+        self.socket.errorOccurred.connect(self._manejar_error)
+
+        self.socket.connectToHost(QHostAddress(host), port)
+
+    def _conectado(self):
+        self.conectado.emit()
+
+    def _leer_datos(self):
+        datos = self.socket.readAll().data()
+        self.datos_recibidos.emit(datos)
+
+    def _manejar_error(self, error):
+        mensaje = self.socket.errorString()
+        self.error_conexion.emit(mensaje)
+
+    def enviar_datos(self, datos: bytes):
+        if self.socket.state() == QTcpSocket.ConnectedState:
+            self.socket.write(datos)
 
 # ==================================================
 # Clases del juego (Boxing)
@@ -544,7 +606,13 @@ class Ventanacrearpartida(GradientWindow):
         self.close()
 
     def continuar(self):
-        QMessageBox.information(self, "Creando", "Creando partida")
+
+        self.servidor = Servidorjuego(port=12345)
+        self.servidor.nueva_conexion.connect(self.on_player_joined)
+        QMessageBox.information(self, "SERVIDOR", "SERVIDOR INICIADO. ESPERANDO JUGADOR....")
+
+    def on_player_joined(self, direccion_ip):
+        QMessageBox.information(self, "JUGADOR CONECTADO", f"SE HA CONECTADO UN JUGADOR DESDE: {direccion_ip}")
 
 # ============================================
 # Ventana para unirse a una partida
@@ -594,7 +662,21 @@ class Ventanaunirsepartida(GradientWindow):
         self.close()
 
     def continuar(self):
-        QMessageBox.information(self, "Unirse", "Uniéndose a partida")
+        ip_servidor = "192.168.1.10"  #CAMBIAR DIRECCION IP CON LA MAQUINA
+        self.cliente = Clientejuego(ip_servidor, 12345)
+        self.cliente.conectado.connect(self.on_conectado)
+        self.cliente.datos_recibidos.connect(self.on_datos_recibidos)
+        self.cliente.error_conexion.connect(self.on_error_conexion)
+
+    def on_conectado(self):
+        QMessageBox.information(self, "Conexión", "Conectado al servidor")
+        self.cliente.enviar_datos(b"Hola desde el cliente")
+
+    def on_datos_recibidos(self, datos: bytes):
+        QMessageBox.information(self, "Servidor", f"Datos recibidos: {datos.decode()}")
+
+    def on_error_conexion(self, mensaje: str):
+        QMessageBox.critical(self, "Error de conexión", mensaje)
 
 # ============================================
 # Ventana de puntuaciones
