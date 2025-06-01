@@ -1,6 +1,8 @@
 import sys
 import os
 import random
+import socket
+import sqlite3
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout,
@@ -17,22 +19,64 @@ from PySide6.QtNetwork import QTcpServer, QTcpSocket, QHostAddress
 from PySide6.QtCore import QObject, Signal
 
 # Rutas de recursos
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-RUTA_RING = os.path.join(BASE_DIR, "imagenes", "ring_boxeo.jpg")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'codigo'
+
 RUTA_MUSICA = os.path.join(BASE_DIR, "music", "fondo2.mp3")
 RUTA_FONDO = os.path.join(BASE_DIR, "imagenes", "fondo_inicio.jpg")
 RUTA_ICONMUSICA = os.path.join(BASE_DIR, "imagenes", "musica.png")
 
-# Sprites de jugadores
-SPRITE_PLAYER1_IDLE = os.path.join(BASE_DIR, "imagenes", "player1_idle.png")
-SPRITE_PLAYER1_PUNCH = os.path.join(BASE_DIR, "imagenes", "player1_punch.png")
-SPRITE_PLAYER2_IDLE = os.path.join(BASE_DIR, "imagenes", "player2_idle.png")
-SPRITE_PLAYER2_PUNCH = os.path.join(BASE_DIR, "imagenes", "player2_punch.png")
+# ==================================================
+# CLASE PARA OBTENER IP AUTOMATICAMENTE
+# ==================================================
+def obtener_ip_local():
+    s= socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
 
-# Sonidos
-SONIDO_PUNCH = os.path.join(BASE_DIR, "music", "punch.wav")
-SONIDO_START = os.path.join(BASE_DIR, "music", "start.wav")
-SONIDO_END = os.path.join(BASE_DIR, "music", "end.wav")
+def inicializar_db():
+    con = sqlite3.connect("confiuracion.db")
+    cur = con.cursor()
+    cur. execute("""
+        CREATE TABLE IF NOT EXISTS jugador (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        nombre TEXT NOT NULL, 
+        ip TEXT NOT NULL
+        )
+    """)
+    con.commit()
+    con.close()
+
+def guardar_jugador(nombre, ip):
+    con =sqlite3.connect("configuracion.db")
+    cur = con.cursor()
+    cur.execute("INSERT INTO jugador (nombre, ip), VALUES(?, ?)", (nombre, ip))
+    con.commit()
+    con.close()
+
+def obtener_jugador():
+    con = sqlite3.connect("configuracion.db")
+    cur = con.cursor()
+    cur.execute("SELECT nombre, ip FROM jugador ORDER BY id DESC LIMIT 1")
+    jugador = cur.fetchone()
+    con.close()
+    return jugador if jugador else (None, None)
+
+def obtener_configuracion_guardada():
+    try:
+        con = sqlite3.connect("configuracion.db")
+        cur = con.cursor()
+        cur.execute("SELECT nombre, ip FROM configuracion LIMIT 1")
+        fila = cur.fetchone()
+        con.close()
+        if fila:
+            return fila[0], fila[1]  # nombre, ip
+    except Exception:
+        pass
+    return "", ""
 
 # ==================================================
 # CLASES PARA SERVDOR
@@ -93,19 +137,19 @@ class Clientejuego(QObject):
     def enviar_datos(self, datos: bytes):
         if self.socket.state() == QTcpSocket.ConnectedState:
             self.socket.write(datos)
-#
+
 # ==================================================
 # Clases del juego (Boxing)
 # ==================================================
 class Player:
-    WIDTH = 80
-    HEIGHT = 120
-    SPEED = 15
-    PUNCH_RANGE = 40
+    WIDTH = 40
+    HEIGHT = 60
+    SPEED = 10
+    PUNCH_RANGE = 20
     PUNCH_DURATION = 200  # ms
     SHAKE_DURATION = 300  # ms para sacudida tras golpe
 
-    def __init__(self, x, y, color, keys, sprite_idle, sprite_punch, name=""):
+    def __init__(self, x, y, color, keys, name=""):
         self.x = x
         self.y = y
         self.color = color
@@ -119,26 +163,6 @@ class Player:
         self.last_hit_time = None
         self.shake_offset = QPointF(0, 0)
         self.hit_flash_alpha = 0
-
-        # Cargar sprites manteniendo el estilo original
-        self.sprite_idle = self.load_sprite(sprite_idle, color)
-        self.sprite_punch = self.load_sprite(sprite_punch, color.darker(150))
-
-    def load_sprite(self, path, default_color):
-        """Carga el sprite manteniendo el aspecto visual original"""
-        if os.path.exists(path):
-            pixmap = QPixmap(path)
-            if not pixmap.isNull():
-                return pixmap
-        
-        # Crear sprite por defecto si no se encuentra la imagen
-        pixmap = QPixmap(self.width, self.height)
-        pixmap.fill(default_color)
-        painter = QPainter(pixmap)
-        painter.setPen(Qt.black)
-        painter.drawRect(0, 0, self.width-1, self.height-1)
-        painter.end()
-        return pixmap
 
     def rect(self):
         return QRect(self.x, self.y, self.width, self.height)
@@ -219,29 +243,16 @@ class BoxingGame(QWidget):
     def __init__(self, player1_name="Jugador 1", player2_name="Jugador 2"):
         super().__init__()
         self.setWindowTitle("Retro Fight - Partida")
-        self.setFixedSize(800, 600)  # Mismo tamaño que las demás ventanas
-        self.showMaximized()
-        
-        self.fondo_ring = QPixmap(RUTA_RING)
-        if self.fondo_ring.isNull():
-            print("No se pudo cargar la imagen del ring, usando fondo por defecto")
-            self.fondo_ring = QPixmap(self.size())
-            self.fondo_ring.fill(QColor(20, 20, 20))
-        else:
-            self.fondo_ring = self.fondo_ring.scaled(
-                self.size(), 
-                Qt.KeepAspectRatioByExpanding, 
-                Qt.SmoothTransformation
-            )
+        self.setFixedSize(800, 400)
+        self.setFocusPolicy(Qt.StrongFocus)
 
-        # Inicializar jugadores con sprites
         self.player1 = Player(50, 170, QColor(200, 50, 50), {
             'left': Qt.Key_A,
             'right': Qt.Key_D,
             'up': Qt.Key_W,
             'down': Qt.Key_S,
             'punch': Qt.Key_Space
-        }, SPRITE_PLAYER2_IDLE, SPRITE_PLAYER2_PUNCH, player1_name)
+        }, player1_name)
 
         self.player2 = Player(510, 170, QColor(50, 50, 200), {
             'left': Qt.Key_Left,
@@ -249,16 +260,33 @@ class BoxingGame(QWidget):
             'up': Qt.Key_Up,
             'down': Qt.Key_Down,
             'punch': Qt.Key_Return
-        }, SPRITE_PLAYER1_IDLE, SPRITE_PLAYER1_PUNCH, player2_name)
+        }, player2_name)
 
         self.keys_pressed = set()
         self.round_timer = BoxingGame.ROUND_TIME
         self.round_active = False
 
-        # Configurar UI
-        self.setup_ui()
+        self.health_bar1 = QProgressBar(self)
+        self.health_bar1.setGeometry(50, 20, 200, 25)
+        self.health_bar1.setValue(self.player1.health)
+        self.health_bar1.setFormat(f"{player1_name} - Vida: %p%")
+        self.health_bar1.setStyleSheet("QProgressBar::chunk {background-color: red;}")
 
-        # Temporizadores
+        self.health_bar2 = QProgressBar(self)
+        self.health_bar2.setGeometry(350, 20, 200, 25)
+        self.health_bar2.setValue(self.player2.health)
+        self.health_bar2.setFormat(f"{player2_name} - Vida: %p%")
+        self.health_bar2.setStyleSheet("QProgressBar::chunk {background-color: blue;}")
+
+        self.timer_label = QLabel(f"Tiempo: {self.round_timer}", self)
+        self.timer_label.setGeometry(260, 50, 100, 30)
+        self.timer_label.setFont(QFont("Arial", 16))
+        self.timer_label.setAlignment(Qt.AlignCenter)
+
+        self.start_button = QPushButton("Iniciar Round", self)
+        self.start_button.setGeometry(250, 350, 100, 30)
+        self.start_button.clicked.connect(self.start_round)
+
         self.game_timer = QTimer()
         self.game_timer.timeout.connect(self.game_loop)
         self.game_timer.start(30)
@@ -266,95 +294,27 @@ class BoxingGame(QWidget):
         self.countdown_timer = QTimer()
         self.countdown_timer.timeout.connect(self.update_timer)
 
-        # Efectos
         self.flash_color = None
         self.flash_alpha = 0
         self.impact_effects = []
 
-        # Sonidos
         self.sounds = {}
-        self.load_sound('punch', SONIDO_PUNCH)
-        self.load_sound('start', SONIDO_START)
-        self.load_sound('end', SONIDO_END)
-
-    def setup_ui(self):
-        """Configura los elementos de la interfaz de usuario"""
-        # Barras de salud
-        self.health_bar1 = QProgressBar(self)
-        self.health_bar1.setGeometry(50, 20, 200, 25)
-        self.health_bar1.setValue(self.player1.health)
-        self.health_bar1.setFormat(f"{self.player1.name} - Vida: %p%")
-        self.health_bar1.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-                color: white;
-            }
-            QProgressBar::chunk {
-                background-color: red;
-            }
-        """)
-
-        self.health_bar2 = QProgressBar(self)
-        self.health_bar2.setGeometry(350, 20, 200, 25)
-        self.health_bar2.setValue(self.player2.health)
-        self.health_bar2.setFormat(f"{self.player2.name} - Vida: %p%")
-        self.health_bar2.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-                color: white;
-            }
-            QProgressBar::chunk {
-                background-color: blue;
-            }
-        """)
-
-        # Temporizador
-        self.timer_label = QLabel(f"Tiempo: {self.round_timer}", self)
-        self.timer_label.setGeometry(260, 50, 100, 30)
-        self.timer_label.setFont(QFont("Arial", 16))
-        self.timer_label.setStyleSheet("color: white;")
-        self.timer_label.setAlignment(Qt.AlignCenter)
-
-        # Botón de inicio
-        self.start_button = QPushButton("Iniciar Round", self)
-        self.start_button.setGeometry(250, 350, 100, 30)
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 5px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-        """)
-        self.start_button.clicked.connect(self.start_round)
+        self.load_sound('punch', 'punch.wav')
+        self.load_sound('start', 'start.wav')
+        self.load_sound('end', 'end.wav')
 
     def load_sound(self, name, filename):
-        """Carga los efectos de sonido"""
         if os.path.exists(filename):
             sound = QSoundEffect()
             sound.setSource(f"file:///{os.path.abspath(filename)}")
             self.sounds[name] = sound
 
     def play_sound(self, name):
-        """Reproduce un efecto de sonido"""
         sound = self.sounds.get(name)
         if sound:
             sound.play()
 
     def start_round(self):
-        """Inicia un nuevo round"""
         self.round_timer = BoxingGame.ROUND_TIME
         self.round_active = True
         self.player1.health = 100
@@ -369,7 +329,6 @@ class BoxingGame(QWidget):
         self.play_sound('start')
 
     def update_timer(self):
-        """Actualiza el temporizador del round"""
         if self.round_timer > 0:
             self.round_timer -= 1
             self.timer_label.setText(f"Tiempo: {self.round_timer}")
@@ -377,7 +336,6 @@ class BoxingGame(QWidget):
             self.end_round("Tiempo terminado, ¡empate!")
 
     def end_round(self, message):
-        """Finaliza el round actual"""
         self.round_active = False
         self.countdown_timer.stop()
         self.start_button.setEnabled(True)
@@ -386,7 +344,6 @@ class BoxingGame(QWidget):
         self.update()
 
     def keyPressEvent(self, event):
-        """Maneja las teclas presionadas"""
         self.keys_pressed.add(event.key())
 
         if self.round_active:
@@ -398,24 +355,20 @@ class BoxingGame(QWidget):
                 self.play_sound('punch')
 
     def keyReleaseEvent(self, event):
-        """Maneja las teclas liberadas"""
         if event.key() in self.keys_pressed:
             self.keys_pressed.remove(event.key())
 
     def game_loop(self):
-        """Bucle principal del juego"""
         if not self.round_active:
             self.update()
             return
 
         bounds = self.rect()
 
-        # Actualizar estados de los jugadores
         for player in (self.player1, self.player2):
             player.update_punch()
             player.update_shake()
 
-        # Movimiento jugador 1
         for key, direction in [(self.player1.keys['left'], 'left'),
                                (self.player1.keys['right'], 'right'),
                                (self.player1.keys['up'], 'up'),
@@ -423,7 +376,6 @@ class BoxingGame(QWidget):
             if key in self.keys_pressed:
                 self.player1.move(direction, bounds)
 
-        # Movimiento jugador 2
         for key, direction in [(self.player2.keys['left'], 'left'),
                                (self.player2.keys['right'], 'right'),
                                (self.player2.keys['up'], 'up'),
@@ -433,17 +385,14 @@ class BoxingGame(QWidget):
 
         self.check_punches()
 
-        # Actualizar UI
         self.health_bar1.setValue(self.player1.health)
         self.health_bar2.setValue(self.player2.health)
 
-        # Verificar condición de victoria
         if self.player1.health <= 0:
             self.end_round(f"{self.player2.name} gana!")
         elif self.player2.health <= 0:
             self.end_round(f"{self.player1.name} gana!")
 
-        # Actualizar efectos visuales
         if self.flash_alpha > 0:
             self.flash_alpha = max(0, self.flash_alpha - 15)
 
@@ -451,7 +400,6 @@ class BoxingGame(QWidget):
         self.update()
 
     def check_punches(self):
-        """Verifica colisiones de golpes"""
         if self.player1.is_punching and self.player1.punch_rect().intersects(self.player2.rect()):
             if not self.player2.last_hit_time or self.player2.last_hit_time.msecsTo(QTime.currentTime()) > 300:
                 self.player2.health = max(0, self.player2.health - 3)
@@ -466,45 +414,37 @@ class BoxingGame(QWidget):
                 self.flash_screen(QColor(100, 100, 255))
 
     def create_impact(self, pos, color):
-        """Crea un efecto de impacto visual"""
         effect = ImpactEffect(pos.x(), pos.y())
         self.impact_color = color
         self.impact_effects.append(effect)
 
     def flash_screen(self, color):
-        """Efecto de destello al golpear"""
         self.flash_color = color
         self.flash_alpha = 150
 
     def paintEvent(self, event):
-        """Dibuja todos los elementos gráficos"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Fondo
         painter.fillRect(self.rect(), QColor(20, 20, 20))
-        
-        # Líneas del ring
-        for y in (100, 300):
-            painter.setPen(QColor(200, 200, 200))
-            painter.drawLine(0, y, self.width(), y)
 
-        # Efecto de destello
         if self.flash_alpha > 0 and self.flash_color:
             color = QColor(self.flash_color)
             color.setAlpha(self.flash_alpha)
             painter.fillRect(self.rect(), color)
 
-        # Dibujar jugadores
+        for y in (100, 300):
+            painter.setPen(QColor(200, 200, 200))
+            painter.drawLine(0, y, self.width(), y)
+
         for player in (self.player1, self.player2):
             offset = player.shake_offset
             r = player.rect().translated(offset.x(), offset.y())
             
-            # Dibujar sprite adecuado según estado
-            sprite = player.sprite_punch if player.is_punching else player.sprite_idle
-            painter.drawPixmap(r, sprite)
+            # Dibujar jugador
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(player.color)
+            painter.drawRect(r)
 
-            # Efecto de golpe (borde resaltado)
             if player.hit_flash_alpha > 0:
                 pen = QPen(player.color.lighter(200))
                 pen.setWidth(3)
@@ -514,7 +454,6 @@ class BoxingGame(QWidget):
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRect(r)
 
-        # Dibujar efectos de impacto
         for effect in self.impact_effects:
             radius = effect.radius()
             alpha = int(effect.alpha())
@@ -523,8 +462,6 @@ class BoxingGame(QWidget):
             painter.setPen(Qt.NoPen)
             painter.setBrush(color)
             painter.drawEllipse(QPointF(effect.x, effect.y), radius, radius)
-
-        painter.end()
 
 # ==================================================
 # Clase base para ventanas con fondo de gradiente
@@ -677,7 +614,7 @@ class Ventanajuego(GradientWindow):
         self.hide()
 
 # ============================================
-# Ventana para crear partida
+# Ventana para unirse partida CORREGIR
 # ============================================
 class Ventanacrearpartida(GradientWindow):
     def __init__(self, ventana_principal=None):
@@ -688,6 +625,8 @@ class Ventanacrearpartida(GradientWindow):
         self.setMinimumSize(800, 600)
         self.showMaximized()
 
+        self.nombre_jugador, self.ip_local = obtener_configuracion_guardada()
+
         central = QWidget()
         self.setCentralWidget(central)
 
@@ -695,6 +634,11 @@ class Ventanacrearpartida(GradientWindow):
         label.setAlignment(Qt.AlignCenter)
         label.setFont(QFont("Arial", 24, QFont.Bold))
         label.setStyleSheet("color: #ffffff;")
+
+        label_info = QLabel(f"Jugador: {self.nombre_jugador} | IP Local: {self.ip_local}", self)
+        label_info.setAlignment(Qt.AlignCenter)
+        label_info.setFont(QFont("Arial", 14))
+        label_info.setStyleSheet("color: white;")
 
         btn_regreso = QPushButton("REGRESAR", self)
         btn_regreso.setFont(QFont("Arial", 16))
@@ -714,6 +658,7 @@ class Ventanacrearpartida(GradientWindow):
 
         layoutv = QVBoxLayout()
         layoutv.addWidget(label, alignment=Qt.AlignCenter)
+        layoutv.addWidget(label_info, alignment=Qt.AlignCenter)
         layoutv.addLayout(layouth)
 
         central.setLayout(layoutv)
@@ -727,13 +672,13 @@ class Ventanacrearpartida(GradientWindow):
 
         self.servidor = Servidorjuego(port=12345)
         self.servidor.nueva_conexion.connect(self.on_player_joined)
-        QMessageBox.information(self, "SERVIDOR", "SERVIDOR INICIADO. ESPERANDO JUGADOR....")
+        QMessageBox.information(self, "CONECTANDO",f"{self.nombre_jugador} se conectará al servidor en {self.ip_local}")
 
     def on_player_joined(self, direccion_ip):
         QMessageBox.information(self, "JUGADOR CONECTADO", f"SE HA CONECTADO UN JUGADOR DESDE: {direccion_ip}")
 
 # ============================================
-# Ventana para unirse a una partida
+# Ventana para CREAR a una partida CORREGIR
 # ============================================
 class Ventanaunirsepartida(GradientWindow):
     def __init__(self, ventana_principal=None):
@@ -743,6 +688,14 @@ class Ventanaunirsepartida(GradientWindow):
         self.setWindowTitle("Crear partida")
         self.setMinimumSize(800, 600)
         self.showMaximized()
+
+        self.nombre_jugador, self.ip_local = obtener_configuracion_guardada()
+
+        # (Opcional) Mostrar los datos en un QLabel para confirmar
+        self.label_info = QLabel(f"Jugador: {self.nombre_jugador} | IP: {self.ip_local}")
+        self.label_info.setAlignment(Qt.AlignCenter)
+        self.label_info.setFont(QFont("Arial", 14))
+        self.label_info.setStyleSheet("color: white;")
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -770,6 +723,7 @@ class Ventanaunirsepartida(GradientWindow):
 
         layoutv = QVBoxLayout()
         layoutv.addWidget(label, alignment=Qt.AlignCenter)
+        layoutv.addWidget(self.label_info, alignment=Qt.AlignCenter)
         layoutv.addLayout(layouth)
 
         central.setLayout(layoutv)
@@ -780,11 +734,9 @@ class Ventanaunirsepartida(GradientWindow):
         self.close()
 
     def continuar(self):
-        ip_servidor = "192.168.1.10"  #CAMBIAR DIRECCION IP CON LA MAQUINA
-        self.cliente = Clientejuego(ip_servidor, 12345)
-        self.cliente.conectado.connect(self.on_conectado)
-        self.cliente.datos_recibidos.connect(self.on_datos_recibidos)
-        self.cliente.error_conexion.connect(self.on_error_conexion)
+        self.servidor = Servidorjuego(port=12345)
+        self.servidor.nueva_conexion.connect(self.on_player_joined)
+        QMessageBox.information(self, "SERVIDOR",f"{self.nombre_jugador} ha iniciado el servidor en {self.ip_local}.\nEsperando jugador...")
 
     def on_conectado(self):
         QMessageBox.information(self, "Conexión", "Conectado al servidor")
@@ -896,6 +848,23 @@ class Ventanaconfiguracion(GradientWindow):
         self.setMinimumSize(900, 800)
         self.showMaximized()
 
+        self.nombre_input = QLineEdit(self)
+        self.nombre_input.setPlaceholderText("Ingresa tu nombre")
+        self.nombre_input.setFont(QFont("Arial", 18))
+        self.nombre_input.setFixedWidth(400)
+
+        self.ip_input = QLineEdit(self)
+        self.ip_input.setFont(QFont("Arial", 18))
+        self.ip_input.setFixedWidth(400)
+        self.ip_input.setReadOnly(True)
+        self.ip_input.setText(obtener_ip_local())
+
+        btn_guardar = QPushButton("GUARDAR", self)
+        btn_guardar.setFont(QFont("Arial", 16))
+        btn_guardar.setFixedSize(200, 80)
+        btn_guardar.setStyleSheet("background-color: #4caf50; color: white; border-radius: 10px;")
+        btn_guardar.clicked.connect(self.guardar_datos)
+
         central = QWidget()
         self.setCentralWidget(central)
 
@@ -918,10 +887,50 @@ class Ventanaconfiguracion(GradientWindow):
 
         layout = QVBoxLayout()
         layout.addWidget(label)
+        layout.addWidget(self.nombre_input, alignment=Qt.AlignCenter)
+        layout.addWidget(self.ip_input, alignment=Qt.AlignCenter)
+        layout.addWidget(btn_guardar, alignment=Qt.AlignCenter)
         layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
         layout.addWidget(btn_musica, alignment=Qt.AlignCenter)
 
+
         central.setLayout(layout)
+    def guardar_datos(self):
+        nombre = self.nombre_input.text().strip()
+        ip = self.ip_input.text().strip()
+
+        if not nombre:
+            QMessageBox.warning(self, "Advertencia", "Debes de ingresar un nombre.")
+            return
+        con = sqlite3.connect("configuracion.db")
+        cur = con.cursor()
+        cur.execute("""
+                    CREATE TABLE IF NOT EXISTS configuracion (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        nombre TEXT NOT NULL,
+                        ip TEXT NOT NULL
+                    )
+                """)
+        cur.execute("DELETE FROM configuracion")  # solo se guarda uno
+        cur.execute("INSERT INTO configuracion (nombre, ip) VALUES (?, ?)", (nombre, ip))
+        con.commit()
+        con.close()
+
+        QMessageBox.information(self, "Éxito", "Datos guardados correctamente.")
+
+    def cargar_datos_guardados(self):
+        try:
+            conn = sqlite3.connect("configuracion.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT nombre, ip FROM configuracion LIMIT 1")
+            fila = cursor.fetchone()
+            conn.close()
+
+            if fila:
+                self.nombre_input.setText(fila[0])
+                self.ip_input.setText(fila[1])
+        except Exception:
+            pass
 
     def apagar_musica(self):
         if hasattr(self, "player") and self.player.isPlaying():
@@ -941,6 +950,12 @@ class Juego(QMainWindow):
         self.setWindowTitle("RETRO FIGTH")
         self.setMinimumSize(900, 800)
         self.showMaximized()
+
+        # Mostrar mensaje de bienvenida
+        dialogo_bienv = QMessageBox(self)
+        dialogo_bienv.setWindowTitle("Bienvenido")
+        dialogo_bienv.setText("Retro Fight\nJuego realizado por:\nJimena Muñoz\nMichelle Salcido")
+        dialogo_bienv.exec()
 
         self.inicializar_musica()
         # Se conserva el fondo de imagen en la ventana principal, como estaba.
