@@ -21,7 +21,7 @@ from PySide6.QtCore import QObject, Signal
 
 # Rutas de recursos
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'codigo'
-
+RUTA_RING = os.path.join(BASE_DIR, "ring_boxeo.jpg")
 RUTA_MUSICA = os.path.join(BASE_DIR, "music", "fondo2.mp3")
 RUTA_FONDO = os.path.join(BASE_DIR, "imagenes", "fondo_inicio.jpg")
 RUTA_ICONMUSICA = os.path.join(BASE_DIR, "imagenes", "musica.png")
@@ -53,54 +53,65 @@ def obtener_ip_local():
 # ==================================================
 
 def inicializar_db():
-    con = sqlite3.connect("confiuracion.db")
-    cur = con.cursor()
-    cur. execute("""
-        CREATE TABLE IF NOT EXISTS jugador (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        nombre TEXT NOT NULL, 
-        ip TEXT NOT NULL
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS puntuaciones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
-            puntos INTEGER NOT NULL,
-            fecha TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    con.commit()
-    con.close()
+    try:
+        con = sqlite3.connect("configuracion.db")
+        cur = con.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jugador (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            nombre TEXT NOT NULL, 
+            ip TEXT NOT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS puntuaciones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                puntos INTEGER NOT NULL,
+                fecha TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        con.commit()
+        con.close()
+        print("Base de datos inicializada correctamente")
+    except Exception as e:
+        print(f"Error al inicializar la base de datos: {e}")
 
 def guardar_jugador(nombre, ip):
-    con =sqlite3.connect("configuracion.db")
-    cur = con.cursor()
-    cur.execute("INSERT INTO jugador (nombre, ip), VALUES(?, ?)", (nombre, ip))
-    con.commit()
-    con.close()
+    try:
+        con = sqlite3.connect("configuracion.db")
+        cur = con.cursor()
+        cur.execute("INSERT INTO jugador (nombre, ip) VALUES(?, ?)", (nombre, ip))
+        con.commit()
+        con.close()
+        print(f"Jugador guardado: {nombre} - {ip}")
+    except Exception as e:
+        print(f"Error guardando jugador: {e}")
 
 def obtener_jugador():
-    con = sqlite3.connect("configuracion.db")
-    cur = con.cursor()
-    cur.execute("SELECT nombre, ip FROM jugador ORDER BY id DESC LIMIT 1")
-    jugador = cur.fetchone()
-    con.close()
-    return jugador if jugador else (None, None)
+    try:
+        con = sqlite3.connect("configuracion.db")
+        cur = con.cursor()
+        cur.execute("SELECT nombre, ip FROM jugador ORDER BY id DESC LIMIT 1")
+        jugador = cur.fetchone()
+        con.close()
+        return jugador if jugador else (None, None)
+    except Exception as e:
+        print(f"Error obteniendo jugador: {e}")
+        return None, None
 
 def obtener_configuracion_guardada():
     try:
         con = sqlite3.connect("configuracion.db")
         cur = con.cursor()
-        cur.execute("SELECT nombre, ip FROM configuracion LIMIT 1")
+        cur.execute("SELECT nombre, ip FROM jugador LIMIT 1")
         fila = cur.fetchone()
         con.close()
         if fila:
             return fila[0], fila[1]  # nombre, ip
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error obteniendo configuración: {e}")
     return "", ""
-
 
 # ==================================================
 # CLASES PARA SERVIDOR
@@ -109,8 +120,7 @@ class Servidorjuego(QObject):
     nueva_conexion = Signal(str)
     datos_recibidos = Signal(bytes)
 
-
-    def __init__(self, port = 12345):
+    def __init__(self, port=12345):
         super().__init__()
         self.server = QTcpServer()
         self.server.listen(QHostAddress.Any, port)
@@ -121,12 +131,13 @@ class Servidorjuego(QObject):
         if self.socket_cliente is None:
             self.socket_cliente = self.server.nextPendingConnection()
             self.socket_cliente.readyRead.connect(self.leer_datos)
-            direccion_ip= self.socket_cliente.peerAddress().toString()
+            direccion_ip = self.socket_cliente.peerAddress().toString()
+            print(f"✅ Conexión aceptada desde: {direccion_ip}")
             self.nueva_conexion.emit(direccion_ip)
 
     def leer_datos(self):
         if self.socket_cliente:
-            datos =self.socket_cliente.readAll().data
+            datos = self.socket_cliente.readAll().data()
             self.datos_recibidos.emit(datos)
             self.socket_cliente.write(b"Echo: " + datos)
 
@@ -156,16 +167,17 @@ class Clientejuego(QObject):
     datos_recibidos = Signal(bytes)
     error_conexion = Signal(str)
 
-    def __init__(self, host: str, port: int= 12345):
+    def __init__(self, host: str, port: int=12345):
         super().__init__()
         self.socket = QTcpSocket()
-        self.socket.connected.connect(self.conectado)
+        self.socket.connected.connect(self._conectado)
         self.socket.readyRead.connect(self._leer_datos)
         self.socket.errorOccurred.connect(self._manejar_error)
 
         self.socket.connectToHost(QHostAddress(host), port)
 
     def _conectado(self):
+        print("✅ Cliente conectado al servidor.")
         self.conectado.emit()
 
     def _leer_datos(self):
@@ -184,7 +196,7 @@ class Clientejuego(QObject):
 # Clases del juego (Boxing)
 # ==================================================
 class Player:
-    WIDTH =100
+    WIDTH = 100
     HEIGHT = 150
     SPEED = 20
     PUNCH_RANGE = 60
@@ -272,7 +284,6 @@ class Player:
                 self.shake_offset = QPointF(random.randint(-3, 3), random.randint(-3, 3))
                 self.hit_flash_alpha = max(0, 255 - int(255 * elapsed / Player.SHAKE_DURATION))
 
-
 class ImpactEffect:
     MAX_RADIUS = 40
     DURATION = 400
@@ -297,12 +308,12 @@ class ImpactEffect:
     def alpha(self):
         return 255 * (1 - self.progress())
 
-
 class BoxingGame(QWidget):
     ROUND_TIME = 30
 
-    def __init__(self, player1_name="Jugador 1", player2_name="Jugador 2"):
-        super().__init__()
+    def __init__(self, player1_name="Jugador 1", player2_name="Jugador 2", parent=None):
+        super().__init__(parent)
+        self.parent_window = parent
         self.setWindowTitle("Retro Fight - Partida")
         self.setFixedSize(1200, 700)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -321,7 +332,7 @@ class BoxingGame(QWidget):
             'up': Qt.Key_Up,
             'down': Qt.Key_Down,
             'punch': Qt.Key_Return
-        },  SPRITE_PLAYER1_IDLE, SPRITE_PLAYER1_PUNCH, player2_name)
+        }, SPRITE_PLAYER1_IDLE, SPRITE_PLAYER1_PUNCH, player2_name)
 
         self.keys_pressed = set()
         self.flash_color = None
@@ -345,7 +356,7 @@ class BoxingGame(QWidget):
         self.countdown_timer.timeout.connect(self.update_timer)
 
     def setup_ui(self):
-        #barras de salud
+        # Barras de salud
         self.health_bar1 = QProgressBar(self)
         self.health_bar1.setGeometry(100, 30, 450, 35)
         self.health_bar1.setValue(self.player1.health)
@@ -384,74 +395,73 @@ class BoxingGame(QWidget):
             }
         """)
 
-
         self.timer_label = QLabel(f"Tiempo: {self.round_timer}", self)
         self.timer_label.setGeometry(500, 80, 200, 40)
         self.timer_label.setFont(QFont("Arial", 24, QFont.Bold))
         self.timer_label.setStyleSheet("color: white; background-color: rgba(0,0,0,0.5); border-radius: 10px;")
         self.timer_label.setAlignment(Qt.AlignCenter)
 
-        #barra progreso tiempo
+        # Barra progreso tiempo
         self.time_progress = QProgressBar(self)
         self.time_progress.setGeometry(400, 130, 400, 25)
         self.time_progress.setRange(0, BoxingGame.ROUND_TIME)
         self.time_progress.setValue(self.round_timer)
         self.time_progress.setFormat("Tiempo restante")
         self.time_progress.setStyleSheet("""
-                   QProgressBar {
-                       border: 2px solid grey;
-                       border-radius: 5px;
-                       text-align: center;
-                       color: white;
-                       font-size: 14px;
-                       height: 25px;
-                       background-color: #222;
-                   }
-                   QProgressBar::chunk {
-                       background-color: #ffa500;  /* naranja */
-                       width: 10px;
-                   }
-               """)
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+                color: white;
+                font-size: 14px;
+                height: 25px;
+                background-color: #222;
+            }
+            QProgressBar::chunk {
+                background-color: #ffa500;
+                width: 10px;
+            }
+        """)
 
-        #boton inicio
+        # Boton inicio
         self.start_button = QPushButton("Iniciar Round", self)
         self.start_button.setGeometry(500, 600, 200, 50)
         self.start_button.setStyleSheet("""
-                    QPushButton {
-                        background-color: #4CAF50;
-                        color: white;
-                        border: none;
-                        border-radius: 10px;
-                        padding: 10px;
-                        font-size: 18px;
-                        font-weight: bold;
-                    }
-                    QPushButton:hover {
-                        background-color: #45a049;
-                    }
-                    QPushButton:disabled {
-                        background-color: #cccccc;
-                    }
-                """)
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 10px;
+                padding: 10px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
         self.start_button.clicked.connect(self.start_round)
 
-        #boton salir
+        # Boton salir
         self.exit_button = QPushButton("Salir", self)
         self.exit_button.setGeometry(100, 600, 100, 50)
         self.exit_button.setStyleSheet("""
-                    QPushButton {
-                        background-color: #f44336;
-                        color: white;
-                        border: none;
-                        border-radius: 10px;
-                        padding: 10px;
-                        font-size: 16px;
-                        font-weight: bold;
-                    }
-                    QPushButton:hover {
-                        background-color: #d32f2f;
-                    }
-                """)
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                border-radius: 10px;
+                padding: 10px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+        """)
         self.exit_button.clicked.connect(self.close)
 
         self.round_label = QLabel("", self)
@@ -460,8 +470,6 @@ class BoxingGame(QWidget):
         self.round_label.setFont(QFont("Arial", 36, QFont.Bold))
         self.round_label.setStyleSheet("color: gold; background-color: rgba(0, 0, 0, 150); border-radius: 15px;")
         self.round_label.hide()
-
-
 
     def start_round(self):
         self.round_timer = BoxingGame.ROUND_TIME
@@ -500,7 +508,6 @@ class BoxingGame(QWidget):
         elif result_text == f"{self.player2.name} gana!":
             self.score_p2 += 1
 
-
         if self.round_count >= self.max_rounds:  # Ya llegó al máximo
             self.end_game()
         else:
@@ -510,7 +517,7 @@ class BoxingGame(QWidget):
         self.update_score_label()
 
     def end_game(self):
-        self.show_final_result()  # Puedes reutilizar tu método que muestra el ganador
+        self.show_final_result()
         self.start_button.setEnabled(False)
 
     def update_score_label(self):
@@ -524,10 +531,14 @@ class BoxingGame(QWidget):
     def show_final_result(self):
         if self.score_p1 > self.score_p2:
             winner = self.player1.name
+            self.save_score(winner, self.score_p1)
         elif self.score_p2 > self.score_p1:
             winner = self.player2.name
+            self.save_score(winner, self.score_p2)
         else:
             winner = "¡Empate!"
+            self.save_score(self.player1.name, self.score_p1)
+            self.save_score(self.player2.name, self.score_p2)
 
         self.show_round_message(f"¡{winner} gana la partida!", 4000)
         self.start_button.setEnabled(False)
@@ -538,6 +549,17 @@ class BoxingGame(QWidget):
         self.score_p1 = 0
         self.score_p2 = 0
         self.start_button.setEnabled(True)
+
+    def save_score(self, name, score):
+        try:
+            con = sqlite3.connect("configuracion.db")
+            cur = con.cursor()
+            cur.execute("INSERT INTO puntuaciones (nombre, puntos) VALUES (?, ?)", (name, score))
+            con.commit()
+            con.close()
+            print(f"Puntuación guardada: {name} - {score}")
+        except Exception as e:
+            print(f"Error guardando puntuación: {e}")
 
     def keyPressEvent(self, event):
         self.keys_pressed.add(event.key())
@@ -579,62 +601,25 @@ class BoxingGame(QWidget):
 
         self.check_punches()
 
-        #actualiza interfaz
+        # Actualiza interfaz
         self.health_bar1.setValue(self.player1.health)
         self.health_bar2.setValue(self.player2.health)
 
-        #condicion de victoria
+        # Condición de victoria
         if self.player1.health <= 0:
             self.end_round(f"{self.player2.name} gana!")
         elif self.player2.health <= 0:
             self.end_round(f"{self.player1.name} gana!")
 
-       #actualiza efectos
+        # Actualiza efectos
         if self.flash_alpha > 0:
             self.flash_alpha = max(0, self.flash_alpha - 15)
-        #filtrar efectos que aun esten activos
+        # Filtrar efectos que aun esten activos
         self.impact_effects = [e for e in self.impact_effects if e.is_alive()]
         self.update()
 
-        # puntuacion
-        def show_final_result(self):
-            if self.score_p1 > self.score_p2:
-                winner = self.player1.name
-                winner_score = self.score_p1
-                loser = self.player2.name
-                loser_score = self.score_p2
-            elif self.score_p2 > self.score_p1:
-                winner = self.player2.name
-                winner_score = self.score_p2
-                loser = self.player1.name
-                loser_score = self.score_p1
-            else:
-                winner = "¡Empate!"
-                winner_score = self.score_p1
-                loser_score = self.score_p2
-                self.save_score(self.player1.name, self.score_p1)
-                self.save_score(self.player2.name, self.score_p2)
-
-                self.show_round_message(f"¡{winner} gana la partida!", 4000)
-                self.start_button.setEnabled(False)
-                QTimer.singleShot(4500, self.reset_game)
-
-        def save_score(selfself, name, score):
-            try:
-                con = sqlite3.connect("configuracion.db")
-                cur = con.cursor()
-                cur.execute("INSERT INTO puntuaciones (nombre, puntos) VALUES (?, ?)", (name, score))
-                con.commit()
-                con.close()
-            except Exception as e:
-                print(f"Error saving score: {e}")
-
-#=============
-#FALTA TERMINAR DE REVISAR
-#=============
     def check_punches(self):
         if self.player1.is_punching and self.player1.punch_rect().intersects(self.player2.rect()):
-
             if not self.player2.last_hit_time or self.player2.last_hit_time.msecsTo(QTime.currentTime()) > 300:
                 self.player2.health = max(0, self.player2.health - 3)
                 self.player2.got_hit()
@@ -649,10 +634,9 @@ class BoxingGame(QWidget):
                 self.flash_screen(QColor(100, 100, 255))
 
     def create_impact(self, pos, color):
-        if pos.isValid():
-            effect = ImpactEffect(pos.x(), pos.y())
-            self.impact_color = color
-            self.impact_effects.append(effect)
+        effect = ImpactEffect(pos.x(), pos.y())
+        self.impact_color = color
+        self.impact_effects.append(effect)
 
     def flash_screen(self, color):
         self.flash_color = color
@@ -662,22 +646,28 @@ class BoxingGame(QWidget):
         try:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
+            
+            if os.path.exists(RUTA_RING):
+                fondo = QPixmap(RUTA_RING).scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                painter.drawPixmap(self.rect(), fondo)
+            else:
+                gradiente = QLinearGradient(0, 0, self.width(), self.height())
+                gradiente.setColorAt(0, QColor("#3e2723"))
+                gradiente.setColorAt(1, QColor("#212121"))
+                painter.fillRect(self.rect(), gradiente)
 
-            #fondo
-            painter.fillRect(self.rect(), QColor(20, 20, 20))
-
-            #efecto de destello
+            # Efecto de destello
             if self.flash_alpha > 0 and self.flash_color:
                 color = QColor(self.flash_color)
                 color.setAlpha(self.flash_alpha)
                 painter.fillRect(self.rect(), color)
 
-            #lineas del ring
+            # Lineas del ring
             for y in (200, 500):
-                painter.setPen(QPen(QColor(200, 200, 200),3))
+                painter.setPen(QPen(QColor(200, 200, 200), 3))
                 painter.drawLine(50, y, self.width()-50, y)
 
-            #dibuja jugadores
+            # Dibuja jugadores
             for player in (self.player1, self.player2):
                 offset = player.shake_offset
                 r = player.rect().translated(offset.x(), offset.y())
@@ -685,7 +675,7 @@ class BoxingGame(QWidget):
                 sprite = player.sprite_punch if player.is_punching else player.sprite_idle
                 painter.drawPixmap(r, sprite)
 
-                #efecto golpe
+                # Efecto golpe
                 if player.hit_flash_alpha > 0:
                     pen = QPen(player.color.lighter(200), 4)
                     c = player.color
@@ -694,7 +684,7 @@ class BoxingGame(QWidget):
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(r.adjusted(-5, -5, 5, 5))
 
-            #efectos de impacto
+            # Efectos de impacto
             for effect in self.impact_effects:
                 if effect.is_alive():
                     radius = effect.radius()
@@ -729,7 +719,7 @@ class GradientWindow(QMainWindow):
 # Ventana para ingresar nombres de jugadores
 # ============================================
 class VentanaNombres(GradientWindow):
-    def __init__(self, ventana_anterior, is_local = True):
+    def __init__(self, ventana_anterior, is_local=True):
         # Gradiente de azul oscuro a azul (en hexadecimal)
         super().__init__(gradient_start="#000428", gradient_end="#004e92")
         self.ventana_anterior = ventana_anterior
@@ -786,6 +776,8 @@ class VentanaNombres(GradientWindow):
         layout.addWidget(self.input_jugador1)
         if is_local:
             layout.addWidget(self.input_jugador2)
+        else:
+            layout.addWidget(self.ip_input)
         layout.addSpacing(20)
         layout.addWidget(btn_comenzar, alignment=Qt.AlignCenter)
         layout.addWidget(btn_regresar, alignment=Qt.AlignCenter)
@@ -794,20 +786,22 @@ class VentanaNombres(GradientWindow):
         central.setLayout(layout)
 
     def comenzar_juego(self):
-        nombre1 = self.input_jugador1.text()
-        nombre2 = self.input_jugador2.text()
+        nombre1 = self.input_jugador1.text().strip()
         if not nombre1:
             QMessageBox.warning(self, "Error", "Ingrese su nombre")
             return
+            
         if self.is_local:
             nombre2 = self.input_jugador2.text().strip()
             if not nombre2:
                 QMessageBox.warning(self, "Error", "Ingrese ambos nombres")
                 return
 
-            #juego local
+            # Juego local
             self.ventana_juego = BoxingGame(nombre1, nombre2)
             self.ventana_juego.show()
+            self.ventana_anterior.hide()
+            self.close()
         else:
             # Network game
             ip_servidor = self.ip_input.text().strip()
@@ -820,18 +814,13 @@ class VentanaNombres(GradientWindow):
 
             QMessageBox.information(self, "Conectando", f"Conectando a {ip_servidor}...")
 
-        # Se crea la ventana de juego con los nombres ingresados
-        self.ventana_juego = BoxingGame(nombre1, nombre2)
-        self.ventana_juego.show()
-        self.ventana_anterior.hide()
-        self.close()
-
     def on_conexion_exitosa(self):
         QMessageBox.information(self, "Éxito", "Conexión establecida")
-        # Here you would create the network game window
         nombre = self.input_jugador1.text()
         self.ventana_juego = NetworkBoxingGame(nombre, self.cliente)
         self.ventana_juego.show()
+        self.ventana_anterior.hide()
+        self.close()
 
     def on_error_conexion(self, mensaje):
         QMessageBox.critical(self, "Error", f"No se pudo conectar: {mensaje}")
@@ -915,7 +904,7 @@ class NetworkBoxingGame(BoxingGame):
         # Conecta señales
         self.cliente.datos_recibidos.connect(self.on_datos_recibidos)
 
-        # informacion del jugador en el servidor
+        # Informacion del jugador en el servidor
         self.send_player_info()
 
     def send_player_info(self):
@@ -942,6 +931,26 @@ class NetworkBoxingGame(BoxingGame):
         except Exception as e:
             print("Error processing network data:", e)
 
+    def update_opponent_position(self, data):
+        self.player2.x = data["x"]
+        self.player2.y = data["y"]
+        self.update()
+
+    def opponent_punch(self):
+        self.player2.start_punch()
+        self.update()
+
+    def update_game_state(self, data):
+        # Update both players' positions and health
+        self.player1.x = data["player1"]["x"]
+        self.player1.y = data["player1"]["y"]
+        self.player1.health = data["player1"]["health"]
+
+        self.player2.x = data["player2"]["x"]
+        self.player2.y = data["player2"]["y"]
+        self.player2.health = data["player2"]["health"]
+
+        self.update()
 
     def keyPressEvent(self, event):
         super().keyPressEvent(event)
@@ -962,28 +971,6 @@ class NetworkBoxingGame(BoxingGame):
                 "type": "player_punch"
             }
             self.cliente.enviar_datos(json.dumps(data).encode())
-
-        def update_opponent_position(self, data):
-            self.player2.x = data["x"]
-            self.player2.y = data["y"]
-            self.update()
-
-        def opponent_punch(self):
-            self.player2.start_punch()
-            self.update()
-
-            def update_game_state(self, data):
-                # Update both players' positions and health
-                self.player1.x = data["player1"]["x"]
-                self.player1.y = data["player1"]["y"]
-                self.player1.health = data["player1"]["health"]
-
-                self.player2.x = data["player2"]["x"]
-                self.player2.y = data["player2"]["y"]
-                self.player2.health = data["player2"]["health"]
-
-                self.update()
-
 
 # ============================================
 # Ventana para unirse partida CORREGIR
@@ -1041,10 +1028,9 @@ class Ventanacrearpartida(GradientWindow):
         self.close()
 
     def continuar(self):
-
         self.servidor = Servidorjuego(port=12345)
         self.servidor.nueva_conexion.connect(self.on_player_joined)
-        QMessageBox.information(self, "CONECTANDO",f"{self.nombre_jugador} se conectará al servidor en {self.ip_local}")
+        QMessageBox.information(self, "CONECTANDO", f"{self.nombre_jugador} se conectará al servidor en {self.ip_local}")
 
     def on_player_joined(self, direccion_ip):
         QMessageBox.information(self, "JUGADOR CONECTADO", f"SE HA CONECTADO UN JUGADOR DESDE: {direccion_ip}")
@@ -1108,7 +1094,7 @@ class Ventanaunirsepartida(GradientWindow):
     def continuar(self):
         self.servidor = Servidorjuego(port=12345)
         self.servidor.nueva_conexion.connect(self.on_player_joined)
-        QMessageBox.information(self, "SERVIDOR",f"{self.nombre_jugador} ha iniciado el servidor en {self.ip_local}.\nEsperando jugador...")
+        QMessageBox.information(self, "SERVIDOR", f"{self.nombre_jugador} ha iniciado el servidor en {self.ip_local}.\nEsperando jugador...")
 
     def on_conectado(self):
         QMessageBox.information(self, "Conexión", "Conectado al servidor")
@@ -1149,51 +1135,51 @@ class Ventanapuntuaciones(GradientWindow):
         self.tabla_puntuaciones.setSelectionBehavior(QTableWidget.SelectRows)
         self.tabla_puntuaciones.setSortingEnabled(True)
         self.tabla_puntuaciones.setStyleSheet("""
-                    QTableWidget {
-                        background-color: rgba(0, 0, 0, 150);
-                        color: white;
-                        font-size: 16px;
-                        border: 2px solid #444;
-                        border-radius: 10px;
-                        gridline-color: #555;
-                    }
-                    QHeaderView::section {
-                        background-color: #333;
-                        color: white;
-                        padding: 8px;
-                        font-weight: bold;
-                        border: 1px solid #555;
-                        font-size: 18px;
-                    }
-                    QTableWidget::item {
-                        padding: 8px;
-                    }
-                    QScrollBar:vertical {
-                        background: rgba(0, 0, 0, 100);
-                        width: 15px;
-                        margin: 0px;
-                    }
-                    QScrollBar::handle:vertical {
-                        background: #666;
-                        min-height: 20px;
-                        border-radius: 5px;
-                    }
-                """)
+            QTableWidget {
+                background-color: rgba(0, 0, 0, 150);
+                color: white;
+                font-size: 16px;
+                border: 2px solid #444;
+                border-radius: 10px;
+                gridline-color: #555;
+            }
+            QHeaderView::section {
+                background-color: #333;
+                color: white;
+                padding: 8px;
+                font-weight: bold;
+                border: 1px solid #555;
+                font-size: 18px;
+            }
+            QTableWidget::item {
+                padding: 8px;
+            }
+            QScrollBar:vertical {
+                background: rgba(0, 0, 0, 100);
+                width: 15px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #666;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+        """)
 
         btn_actualizar = QPushButton("ACTUALIZAR", self)
         btn_actualizar.setFont(QFont("Arial", 16, QFont.Bold))
         btn_actualizar.setFixedSize(200, 50)
         btn_actualizar.setStyleSheet("""
-                    QPushButton {
-                        background-color: #4CAF50;
-                        color: white;
-                        border-radius: 10px;
-                        padding: 10px;
-                    }
-                    QPushButton:hover {
-                        background-color: #45a049;
-                    }
-                """)
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border-radius: 10px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
         btn_actualizar.clicked.connect(self.mostrar_puntuaciones)
 
         btn_regreso = QPushButton("REGRESAR", self)
@@ -1233,8 +1219,8 @@ class Ventanapuntuaciones(GradientWindow):
             con = sqlite3.connect("configuracion.db")
             cur = con.cursor()
             cur.execute("""
-                SELECT nombre, puntos, strftime('%d/%m/%Y %H:%M', fecha) as fecha_formateada  
-                FROM puntuaciones
+                SELECT nombre, puntos, strftime('%d/%m/%Y %H:%M', fecha) 
+                FROM puntuaciones 
                 ORDER BY puntos DESC, fecha DESC
                 LIMIT 15
             """)
@@ -1244,11 +1230,11 @@ class Ventanapuntuaciones(GradientWindow):
             self.tabla_puntuaciones.setRowCount(len(resultados))
 
             for row, (nombre, puntos, fecha) in enumerate(resultados):
-            # Posicion columna
+                # Posicion columna
                 position_item = QTableWidgetItem(str(row + 1))
                 position_item.setTextAlignment(Qt.AlignCenter)
 
-            # Nomre columna
+                # Nomre columna
                 name_item = QTableWidgetItem(nombre)
 
                 # Puntos columna
@@ -1275,28 +1261,34 @@ class Ventanapuntuaciones(GradientWindow):
                 elif row == 2:
                     color = QColor(205, 127, 50)  # Bronze
                     font = QFont("Arial", 14, QFont.Bold)
-
                 else:
                     color = QColor(255, 255, 255)  # White
                     font = QFont("Arial", 12)
+                    
+                # Aplicar estilo
                 for col in range(4):
-                    self.tabla_puntuaciones.item(row, col).setForeground(color)
-                    self.tabla_puntuaciones.item(row, col).setFont(font)
-            self.tabla_puntuaciones.setColumnWidth(0, 100)  # Position
-            self.tabla_puntuaciones.setColumnWidth(1, 300)  # Name
-            self.tabla_puntuaciones.setColumnWidth(2, 150)  # Points
-            self.tabla_puntuaciones.setColumnWidth(3, 200)  # Date
-
+                    item = self.tabla_puntuaciones.item(row, col)
+                    if item:
+                        item.setForeground(color)
+                        item.setFont(font)
+                        
+            # Ajustar el ancho de las columnas
+            self.tabla_puntuaciones.setColumnWidth(0, 80)   # Posición
+            self.tabla_puntuaciones.setColumnWidth(1, 250)  # Nombre
+            self.tabla_puntuaciones.setColumnWidth(2, 100)  # Puntos
+            self.tabla_puntuaciones.setColumnWidth(3, 200)  # Fecha
+            
+            # Ordenar por puntos de forma descendente
             self.tabla_puntuaciones.sortByColumn(2, Qt.DescendingOrder)
 
         except Exception as e:
-            print(f"error al cargar puntuaciones")
+            print(f"Error al cargar puntuaciones: {e}")
             self.tabla_puntuaciones.setRowCount(1)
-            error_item = QTableWidgetItem("Error cargando puntuaciones")
+            self.tabla_puntuaciones.setColumnCount(1)
+            error_item = QTableWidgetItem("Error cargando datos")
             error_item.setTextAlignment(Qt.AlignCenter)
             self.tabla_puntuaciones.setItem(0, 0, error_item)
             self.tabla_puntuaciones.setSpan(0, 0, 1, 4)
-
 
     def regresar_principal(self):
         if self.ventana_principal is not None:
@@ -1340,7 +1332,7 @@ class Ventanaconfiguracion(GradientWindow):
         btn_musica.setIcon(QIcon(RUTA_ICONMUSICA))
         btn_musica.setIconSize(QSize(200, 80))
         btn_musica.setStyleSheet("background-color: #76c7f0; color: white; border-radius: 5px;")
-        btn_regreso.clicked.connect(self.apagar_musica)
+        btn_musica.clicked.connect(self.apagar_musica)
 
         layout = QVBoxLayout()
         layout.addWidget(label)
@@ -1370,10 +1362,10 @@ class Juego(QMainWindow):
         self.showMaximized()
 
         # Mostrar mensaje de bienvenida
-        #dialogo_bienv = QMessageBox(self)
-        #dialogo_bienv.setWindowTitle("Bienvenido")
-        #dialogo_bienv.setText("Retro Fight\nJuego realizado por:\nJimena Muñoz\nMichelle Salcido")
-        #dialogo_bienv.exec()
+        dialogo_bienv = QMessageBox(self)
+        dialogo_bienv.setWindowTitle("Bienvenido")
+        dialogo_bienv.setText("Retro Fight\nJuego realizado por:\nJimena Muñoz\nMichelle Salcido")
+        dialogo_bienv.exec()
 
         self.inicializar_musica()
         # Se conserva el fondo de imagen en la ventana principal, como estaba.
@@ -1472,6 +1464,9 @@ class Juego(QMainWindow):
 # Bloque principal
 # ============================================
 if __name__ == "__main__":
+    # Inicializar la base de datos antes de iniciar la aplicación
+    inicializar_db()
+    
     app = QApplication(sys.argv)
     ventana = Juego()
     ventana.show()
