@@ -25,6 +25,12 @@ RUTA_MUSICA = os.path.join(BASE_DIR, "music", "fondo2.mp3")
 RUTA_FONDO = os.path.join(BASE_DIR, "imagenes", "fondo_inicio.jpg")
 RUTA_ICONMUSICA = os.path.join(BASE_DIR, "imagenes", "musica.png")
 
+# Sprites de jugadores
+SPRITE_PLAYER1_IDLE = os.path.join(BASE_DIR, "imagenes", "player1_idle.png")
+SPRITE_PLAYER1_PUNCH = os.path.join(BASE_DIR, "imagenes", "player1_punch.png")
+SPRITE_PLAYER2_IDLE = os.path.join(BASE_DIR, "imagenes", "player2_idle.png")
+SPRITE_PLAYER2_PUNCH = os.path.join(BASE_DIR, "imagenes", "player2_punch.png")
+
 # ==================================================
 # CLASE PARA OBTENER IP AUTOMATICAMENTE
 # ==================================================
@@ -79,11 +85,12 @@ def obtener_configuracion_guardada():
     return "", ""
 
 # ==================================================
-# CLASES PARA SERVDOR
+# CLASES PARA SERVIDOR
 # ==================================================
 class Servidorjuego(QObject):
     nueva_conexion = Signal(str)
     datos_recibidos = Signal(bytes)
+
 
     def __init__(self, port = 12345):
         super().__init__()
@@ -246,47 +253,36 @@ class BoxingGame(QWidget):
         self.setFixedSize(800, 400)
         self.setFocusPolicy(Qt.StrongFocus)
 
-        self.player1 = Player(50, 170, QColor(200, 50, 50), {
+        self.player1 = Player(200, 300, QColor(200, 50, 50), {
             'left': Qt.Key_A,
             'right': Qt.Key_D,
             'up': Qt.Key_W,
             'down': Qt.Key_S,
             'punch': Qt.Key_Space
-        }, player1_name)
+        }, SPRITE_PLAYER2_IDLE, SPRITE_PLAYER2_PUNCH, player1_name)
 
-        self.player2 = Player(510, 170, QColor(50, 50, 200), {
+        self.player2 = Player(900, 300, QColor(50, 50, 200), {
             'left': Qt.Key_Left,
             'right': Qt.Key_Right,
             'up': Qt.Key_Up,
             'down': Qt.Key_Down,
             'punch': Qt.Key_Return
-        }, player2_name)
+        },  SPRITE_PLAYER1_IDLE, SPRITE_PLAYER1_PUNCH, player2_name)
 
         self.keys_pressed = set()
+        self.flash_color = None
+        self.flash_alpha = 0
+        self.impact_effects = []
+
         self.round_timer = BoxingGame.ROUND_TIME
         self.round_active = False
+        self.round_count = 1
+        self.max_rounds = 10
+        self.score_p1 = 0
+        self.score_p2 = 0
+        self.setup_ui()
 
-        self.health_bar1 = QProgressBar(self)
-        self.health_bar1.setGeometry(50, 20, 200, 25)
-        self.health_bar1.setValue(self.player1.health)
-        self.health_bar1.setFormat(f"{player1_name} - Vida: %p%")
-        self.health_bar1.setStyleSheet("QProgressBar::chunk {background-color: red;}")
-
-        self.health_bar2 = QProgressBar(self)
-        self.health_bar2.setGeometry(350, 20, 200, 25)
-        self.health_bar2.setValue(self.player2.health)
-        self.health_bar2.setFormat(f"{player2_name} - Vida: %p%")
-        self.health_bar2.setStyleSheet("QProgressBar::chunk {background-color: blue;}")
-
-        self.timer_label = QLabel(f"Tiempo: {self.round_timer}", self)
-        self.timer_label.setGeometry(260, 50, 100, 30)
-        self.timer_label.setFont(QFont("Arial", 16))
-        self.timer_label.setAlignment(Qt.AlignCenter)
-
-        self.start_button = QPushButton("Iniciar Round", self)
-        self.start_button.setGeometry(250, 350, 100, 30)
-        self.start_button.clicked.connect(self.start_round)
-
+        # Temporizadores
         self.game_timer = QTimer()
         self.game_timer.timeout.connect(self.game_loop)
         self.game_timer.start(30)
@@ -294,25 +290,100 @@ class BoxingGame(QWidget):
         self.countdown_timer = QTimer()
         self.countdown_timer.timeout.connect(self.update_timer)
 
-        self.flash_color = None
-        self.flash_alpha = 0
-        self.impact_effects = []
+    def setup_ui(self):
+        #barras de salud
+        self.health_bar1 = QProgressBar(self)
+        self.health_bar1.setGeometry(100, 30, 450, 35)
+        self.health_bar1.setValue(self.player1.health)
+        self.health_bar1.setFormat(f"{self.player1.name} - Vida: %p%")
+        self.health_bar1.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+                color: white;
+                font-size: 16px;
+                height: 30px;
+            }
+            QProgressBar::chunk {
+                background-color: red;
+                width: 10px;
+            }
+        """)
 
-        self.sounds = {}
-        self.load_sound('punch', 'punch.wav')
-        self.load_sound('start', 'start.wav')
-        self.load_sound('end', 'end.wav')
+        self.health_bar2 = QProgressBar(self)
+        self.health_bar2.setGeometry(650, 30, 450, 35)
+        self.health_bar2.setValue(self.player2.health)
+        self.health_bar2.setFormat(f"{self.player2.name} - Vida: %p%")
+        self.health_bar2.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+                color: white;
+                font-size: 16px;
+                height: 30px;
+            }
+            QProgressBar::chunk {
+                background-color: blue;
+                width: 10px;
+            }
+        """)
 
-    def load_sound(self, name, filename):
-        if os.path.exists(filename):
-            sound = QSoundEffect()
-            sound.setSource(f"file:///{os.path.abspath(filename)}")
-            self.sounds[name] = sound
 
-    def play_sound(self, name):
-        sound = self.sounds.get(name)
-        if sound:
-            sound.play()
+        self.timer_label = QLabel(f"Tiempo: {self.round_timer}", self)
+        self.timer_label.setGeometry(500, 80, 200, 40)
+        self.timer_label.setFont(QFont("Arial", 24, QFont.Bold))
+        self.timer_label.setStyleSheet("color: white; background-color: rgba(0,0,0,0.5); border-radius: 10px;")
+        self.timer_label.setAlignment(Qt.AlignCenter)
+
+        #boton inicio
+        self.start_button = QPushButton("Iniciar Round", self)
+        self.start_button.setGeometry(500, 600, 200, 50)
+        self.start_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #4CAF50;
+                        color: white;
+                        border: none;
+                        border-radius: 10px;
+                        padding: 10px;
+                        font-size: 18px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #45a049;
+                    }
+                    QPushButton:disabled {
+                        background-color: #cccccc;
+                    }
+                """)
+        self.start_button.clicked.connect(self.start_round)
+
+        #boton salir
+        self.exit_button = QPushButton("Salir", self)
+        self.exit_button.setGeometry(100, 600, 100, 50)
+        self.exit_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #f44336;
+                        color: white;
+                        border: none;
+                        border-radius: 10px;
+                        padding: 10px;
+                        font-size: 16px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #d32f2f;
+                    }
+                """)
+        self.exit_button.clicked.connect(self.close)
+
+        self.round_label = QLabel("", self)
+        self.round_label.setGeometry(300, 250, 600, 80)
+        self.round_label.setAlignment(Qt.AlignCenter)
+        self.round_label.setFont(QFont("Arial", 36, QFont.Bold))
+        self.round_label.setStyleSheet("color: gold; background-color: rgba(0, 0, 0, 150); border-radius: 15px;")
+        self.round_label.hide()
 
     def start_round(self):
         self.round_timer = BoxingGame.ROUND_TIME
@@ -324,9 +395,10 @@ class BoxingGame(QWidget):
         self.timer_label.setText(f"Tiempo: {self.round_timer}")
         self.start_button.setEnabled(False)
         self.countdown_timer.start(1000)
-        self.player1.x, self.player1.y = 50, 170
-        self.player2.x, self.player2.y = 510, 170
-        self.play_sound('start')
+        self.player1.x, self.player1.y = 200, 300
+        self.player2.x, self.player2.y = 900, 300
+        self.show_round_message(f"ROUND {self.round_count}", 2000)
+        self.update()
 
     def update_timer(self):
         if self.round_timer > 0:
@@ -335,13 +407,48 @@ class BoxingGame(QWidget):
         else:
             self.end_round("Tiempo terminado, ¡empate!")
 
-    def end_round(self, message):
+    def end_round(self, result_text):
         self.round_active = False
         self.countdown_timer.stop()
         self.start_button.setEnabled(True)
-        self.timer_label.setText(message)
-        self.play_sound('end')
-        self.update()
+
+        if result_text == f"{self.player1.name} gana!":
+            self.score_p1 += 1
+        elif result_text == f"{self.player2.name} gana!":
+            self.score_p2 += 1
+
+        self.show_round_message(result_text, 2500)
+        self.round_count += 1
+        self.update_score_label()
+
+        if self.round_count > self.max_rounds:
+            self.show_final_result()
+
+    def update_score_label(self):
+        print(f"Ronda {self.round_count - 1} - {self.player1.name}: {self.score_p1} | {self.player2.name}: {self.score_p2}")
+
+    def show_round_message(self, text, duration=2000):
+        self.round_label.setText(text)
+        self.round_label.show()
+        QTimer.singleShot(duration, self.round_label.hide)
+
+    def show_final_result(self):
+        if self.score_p1 > self.score_p2:
+            winner = self.player1.name
+        elif self.score_p2 > self.score_p1:
+            winner = self.player2.name
+        else:
+            winner = "¡Empate!"
+
+        self.show_round_message(f"¡{winner} gana la partida!", 4000)
+        self.start_button.setEnabled(False)
+        QTimer.singleShot(4500, self.reset_game)
+
+    def reset_game(self):
+        self.round_count = 1
+        self.score_p1 = 0
+        self.score_p2 = 0
+        self.start_button.setEnabled(True)
 
     def keyPressEvent(self, event):
         self.keys_pressed.add(event.key())
@@ -349,10 +456,8 @@ class BoxingGame(QWidget):
         if self.round_active:
             if event.key() == self.player1.keys['punch'] and not self.player1.is_punching:
                 self.player1.start_punch()
-                self.play_sound('punch')
             if event.key() == self.player2.keys['punch'] and not self.player2.is_punching:
                 self.player2.start_punch()
-                self.play_sound('punch')
 
     def keyReleaseEvent(self, event):
         if event.key() in self.keys_pressed:
@@ -385,27 +490,34 @@ class BoxingGame(QWidget):
 
         self.check_punches()
 
+        #actualiza interfaz
         self.health_bar1.setValue(self.player1.health)
         self.health_bar2.setValue(self.player2.health)
 
+        #condicion de victoria
         if self.player1.health <= 0:
             self.end_round(f"{self.player2.name} gana!")
         elif self.player2.health <= 0:
             self.end_round(f"{self.player1.name} gana!")
 
+       #actualiza efectos
         if self.flash_alpha > 0:
             self.flash_alpha = max(0, self.flash_alpha - 15)
-
+        #filtrar efectos que aun esten activos
         self.impact_effects = [e for e in self.impact_effects if e.is_alive()]
         self.update()
-
+#=============
+#FALTA TERMINAR DE REVISAR
+#=============
     def check_punches(self):
         if self.player1.is_punching and self.player1.punch_rect().intersects(self.player2.rect()):
+
             if not self.player2.last_hit_time or self.player2.last_hit_time.msecsTo(QTime.currentTime()) > 300:
                 self.player2.health = max(0, self.player2.health - 3)
                 self.player2.got_hit()
                 self.create_impact(self.player1.punch_rect().center(), QColor(255, 100, 100))
                 self.flash_screen(QColor(255, 100, 100))
+
         if self.player2.is_punching and self.player2.punch_rect().intersects(self.player1.rect()):
             if not self.player1.last_hit_time or self.player1.last_hit_time.msecsTo(QTime.currentTime()) > 300:
                 self.player1.health = max(0, self.player1.health - 3)
@@ -414,54 +526,64 @@ class BoxingGame(QWidget):
                 self.flash_screen(QColor(100, 100, 255))
 
     def create_impact(self, pos, color):
-        effect = ImpactEffect(pos.x(), pos.y())
-        self.impact_color = color
-        self.impact_effects.append(effect)
+        if pos.isValid():
+            effect = ImpactEffect(pos.x(), pos.y())
+            self.impact_color = color
+            self.impact_effects.append(effect)
 
     def flash_screen(self, color):
         self.flash_color = color
         self.flash_alpha = 150
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor(20, 20, 20))
+        try:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        if self.flash_alpha > 0 and self.flash_color:
-            color = QColor(self.flash_color)
-            color.setAlpha(self.flash_alpha)
-            painter.fillRect(self.rect(), color)
+            #fondo
+            painter.fillRect(self.rect(), QColor(20, 20, 20))
 
-        for y in (100, 300):
-            painter.setPen(QColor(200, 200, 200))
-            painter.drawLine(0, y, self.width(), y)
+            #efecto de destello
+            if self.flash_alpha > 0 and self.flash_color:
+                color = QColor(self.flash_color)
+                color.setAlpha(self.flash_alpha)
+                painter.fillRect(self.rect(), color)
 
-        for player in (self.player1, self.player2):
-            offset = player.shake_offset
-            r = player.rect().translated(offset.x(), offset.y())
-            
-            # Dibujar jugador
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(player.color)
-            painter.drawRect(r)
+            #lineas del ring
+            for y in (200, 500):
+                painter.setPen(QPen(QColor(200, 200, 200),3))
+                painter.drawLine(50, y, self.width()-50, y)
 
-            if player.hit_flash_alpha > 0:
-                pen = QPen(player.color.lighter(200))
-                pen.setWidth(3)
-                c = player.color
-                pen.setColor(QColor(c.red(), c.green(), c.blue(), player.hit_flash_alpha))
-                painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
-                painter.drawRect(r)
+            #dibuja jugadores
+            for player in (self.player1, self.player2):
+                offset = player.shake_offset
+                r = player.rect().translated(offset.x(), offset.y())
 
-        for effect in self.impact_effects:
-            radius = effect.radius()
-            alpha = int(effect.alpha())
-            color = self.impact_color if hasattr(self, "impact_color") else QColor(255, 255, 255)
-            color.setAlpha(alpha)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(color)
-            painter.drawEllipse(QPointF(effect.x, effect.y), radius, radius)
+                sprite = player.sprite_punch if player.is_punching else player.sprite_idle
+                painter.drawPixmap(r, sprite)
+
+                #efecto golpe
+                if player.hit_flash_alpha > 0:
+                    pen = QPen(player.color.lighter(200), 4)
+                    c = player.color
+                    pen.setColor(QColor(c.red(), c.green(), c.blue(), player.hit_flash_alpha))
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawRect(r.adjusted(-5, -5, 5, 5))
+
+            #efectos de impacto
+            for effect in self.impact_effects:
+                if effect.is_alive():
+                    radius = effect.radius()
+                    alpha = int(effect.alpha())
+                    color = self.impact_color if hasattr(self, "impact_color") else QColor(255, 255, 255)
+                    color.setAlpha(alpha)
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(color)
+                    painter.drawEllipse(QPointF(effect.x, effect.y), radius, radius)
+            painter.end()
+        except Exception as e:
+            print(f"Error en paintEvent: {str(e)}")
 
 # ==================================================
 # Clase base para ventanas con fondo de gradiente
