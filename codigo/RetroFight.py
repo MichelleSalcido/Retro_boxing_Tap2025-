@@ -19,6 +19,14 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QSoundEffect
 from PySide6.QtNetwork import QTcpServer, QTcpSocket, QHostAddress
 from PySide6.QtCore import QObject, Signal
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 # Rutas de recursos
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'codigo'
 RUTA_RING = os.path.join(BASE_DIR, "ring_boxeo.jpg")
