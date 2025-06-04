@@ -62,6 +62,14 @@ def inicializar_db():
         ip TEXT NOT NULL
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS puntuaciones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            puntos INTEGER NOT NULL,
+            fecha TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     con.commit()
     con.close()
 
@@ -93,20 +101,6 @@ def obtener_configuracion_guardada():
         pass
     return "", ""
 
-
-def guardar_puntuacion(nombre, puntos):
-    con = sqlite3.connect("configuracion.db")
-    cur = con.cursor()
-    cur.execute("""
-            CREATE TABLE IF NOT EXISTS puntuaciones (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT NOT NULL,
-                puntos INTEGER NOT NULL
-            )
-        """)
-    cur.execute("INSERT INTO puntuaciones (nombre, puntos) VALUES (?, ?)", (nombre, puntos))
-    con.commit()
-    con.close()
 
 # ==================================================
 # CLASES PARA SERVIDOR
@@ -467,9 +461,7 @@ class BoxingGame(QWidget):
         self.round_label.setStyleSheet("color: gold; background-color: rgba(0, 0, 0, 150); border-radius: 15px;")
         self.round_label.hide()
 
-        self.campana_sound = QSoundEffect()
-        self.campana_sound.setSource(QUrl.fromLocalFile(CAMPANA))
-        self.campana_sound.setVolume(0.5)
+
 
     def start_round(self):
         self.round_timer = BoxingGame.ROUND_TIME
@@ -508,7 +500,6 @@ class BoxingGame(QWidget):
         elif result_text == f"{self.player2.name} gana!":
             self.score_p2 += 1
 
-        self.campana_sound.play()
 
         if self.round_count >= self.max_rounds:  # Ya llegó al máximo
             self.end_game()
@@ -604,6 +595,40 @@ class BoxingGame(QWidget):
         #filtrar efectos que aun esten activos
         self.impact_effects = [e for e in self.impact_effects if e.is_alive()]
         self.update()
+
+        # puntuacion
+        def show_final_result(self):
+            if self.score_p1 > self.score_p2:
+                winner = self.player1.name
+                winner_score = self.score_p1
+                loser = self.player2.name
+                loser_score = self.score_p2
+            elif self.score_p2 > self.score_p1:
+                winner = self.player2.name
+                winner_score = self.score_p2
+                loser = self.player1.name
+                loser_score = self.score_p1
+            else:
+                winner = "¡Empate!"
+                winner_score = self.score_p1
+                loser_score = self.score_p2
+                self.save_score(self.player1.name, self.score_p1)
+                self.save_score(self.player2.name, self.score_p2)
+
+                self.show_round_message(f"¡{winner} gana la partida!", 4000)
+                self.start_button.setEnabled(False)
+                QTimer.singleShot(4500, self.reset_game)
+
+        def save_score(selfself, name, score):
+            try:
+                con = sqlite3.connect("configuracion.db")
+                cur = con.cursor()
+                cur.execute("INSERT INTO puntuaciones (nombre, puntos) VALUES (?, ?)", (name, score))
+                con.commit()
+                con.close()
+            except Exception as e:
+                print(f"Error saving score: {e}")
+
 #=============
 #FALTA TERMINAR DE REVISAR
 #=============
@@ -887,10 +912,10 @@ class NetworkBoxingGame(BoxingGame):
         self.is_host = False
         self.opponent_name = ""
 
-        # Connect signals
+        # Conecta señales
         self.cliente.datos_recibidos.connect(self.on_datos_recibidos)
 
-        # Send player info to server
+        # informacion del jugador en el servidor
         self.send_player_info()
 
     def send_player_info(self):
@@ -1115,45 +1140,163 @@ class Ventanapuntuaciones(GradientWindow):
         titulo.setFont(QFont("Arial", 24, QFont.Bold))
         titulo.setStyleSheet("color: white; font-size: 30px; font-weight: bold;")
 
-        self.label_puntuaciones = QLabel()
-        self.label_puntuaciones.setAlignment(Qt.AlignTop)
-        self.label_puntuaciones.setStyleSheet("color: white; font-size: 18px; margin: 20px;")
+        self.tabla_puntuaciones = QTableWidget(self)
+        self.tabla_puntuaciones.setColumnCount(4)
+        self.tabla_puntuaciones.setHorizontalHeaderLabels(["Posición", "Nombre", "Puntos", "Fecha"])
+        self.tabla_puntuaciones.verticalHeader().setVisible(False)
+        self.tabla_puntuaciones.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tabla_puntuaciones.setSelectionMode(QTableWidget.SingleSelection)
+        self.tabla_puntuaciones.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tabla_puntuaciones.setSortingEnabled(True)
+        self.tabla_puntuaciones.setStyleSheet("""
+                    QTableWidget {
+                        background-color: rgba(0, 0, 0, 150);
+                        color: white;
+                        font-size: 16px;
+                        border: 2px solid #444;
+                        border-radius: 10px;
+                        gridline-color: #555;
+                    }
+                    QHeaderView::section {
+                        background-color: #333;
+                        color: white;
+                        padding: 8px;
+                        font-weight: bold;
+                        border: 1px solid #555;
+                        font-size: 18px;
+                    }
+                    QTableWidget::item {
+                        padding: 8px;
+                    }
+                    QScrollBar:vertical {
+                        background: rgba(0, 0, 0, 100);
+                        width: 15px;
+                        margin: 0px;
+                    }
+                    QScrollBar::handle:vertical {
+                        background: #666;
+                        min-height: 20px;
+                        border-radius: 5px;
+                    }
+                """)
+
+        btn_actualizar = QPushButton("ACTUALIZAR", self)
+        btn_actualizar.setFont(QFont("Arial", 16, QFont.Bold))
+        btn_actualizar.setFixedSize(200, 50)
+        btn_actualizar.setStyleSheet("""
+                    QPushButton {
+                        background-color: #4CAF50;
+                        color: white;
+                        border-radius: 10px;
+                        padding: 10px;
+                    }
+                    QPushButton:hover {
+                        background-color: #45a049;
+                    }
+                """)
+        btn_actualizar.clicked.connect(self.mostrar_puntuaciones)
 
         btn_regreso = QPushButton("REGRESAR", self)
         btn_regreso.setFont(QFont("Arial", 16))
         btn_regreso.setFixedSize(200, 80)
-        btn_regreso.setStyleSheet("background-color: #dcc041; color: white; border-radius: 10px;")
+        btn_regreso.setStyleSheet("""
+            QPushButton {
+                background-color: #607d8b;
+                color: white;
+                border-radius: 10px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #455a64;
+            }
+        """)
         btn_regreso.clicked.connect(self.regresar_principal)
 
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(btn_actualizar, alignment=Qt.AlignCenter)
+        btn_layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
+
         layout = QVBoxLayout()
-        layout.addWidget(titulo)
-        layout.addWidget(self.label_puntuaciones)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
+        layout.addWidget(titulo, alignment=Qt.AlignCenter)
+        layout.addSpacing(20)
+        layout.addWidget(self.tabla_puntuaciones)
+        layout.addSpacing(20)
+        layout.addLayout(btn_layout)
+        layout.setContentsMargins(20, 20, 20, 20)
 
         central.setLayout(layout)
 
         self.mostrar_puntuaciones()
 
     def mostrar_puntuaciones(self):
-        con = sqlite3.connect("configuracion.db")
-        cur = con.cursor()
-        cur.execute("""
-                SELECT nombre, puntos FROM puntuaciones
-                ORDER BY puntos DESC
-                LIMIT 10
+        try:
+            con = sqlite3.connect("configuracion.db")
+            cur = con.cursor()
+            cur.execute("""
+                SELECT nombre, puntos, strftime('%d/%m/%Y %H:%M', fecha) as fecha_formateada  
+                FROM puntuaciones
+                ORDER BY puntos DESC, fecha DESC
+                LIMIT 15
             """)
-        resultados = cur.fetchall()
-        con.close()
+            resultados = cur.fetchall()
+            con.close()
 
-        if resultados:
-            texto = ""
-            for idx, (nombre, puntos) in enumerate(resultados, start=1):
-                texto += f"{idx}. {nombre} - {puntos} puntos\n"
-        else:
-            texto = "No hay puntuaciones guardadas."
+            self.tabla_puntuaciones.setRowCount(len(resultados))
 
-        self.label_puntuaciones.setText(texto)
+            for row, (nombre, puntos, fecha) in enumerate(resultados):
+            # Posicion columna
+                position_item = QTableWidgetItem(str(row + 1))
+                position_item.setTextAlignment(Qt.AlignCenter)
+
+            # Nomre columna
+                name_item = QTableWidgetItem(nombre)
+
+                # Puntos columna
+                points_item = QTableWidgetItem(str(puntos))
+                points_item.setTextAlignment(Qt.AlignCenter)
+
+                # fecha columna
+                date_item = QTableWidgetItem(fecha)
+                date_item.setTextAlignment(Qt.AlignCenter)
+
+                # Set items in table
+                self.tabla_puntuaciones.setItem(row, 0, position_item)
+                self.tabla_puntuaciones.setItem(row, 1, name_item)
+                self.tabla_puntuaciones.setItem(row, 2, points_item)
+                self.tabla_puntuaciones.setItem(row, 3, date_item)
+
+                # Color the top 3 positions
+                if row == 0:
+                    color = QColor(255, 215, 0)  # Gold
+                    font = QFont("Arial", 14, QFont.Bold)
+                elif row == 1:
+                    color = QColor(192, 192, 192)  # Silver
+                    font = QFont("Arial", 14, QFont.Bold)
+                elif row == 2:
+                    color = QColor(205, 127, 50)  # Bronze
+                    font = QFont("Arial", 14, QFont.Bold)
+
+                else:
+                    color = QColor(255, 255, 255)  # White
+                    font = QFont("Arial", 12)
+                for col in range(4):
+                    self.tabla_puntuaciones.item(row, col).setForeground(color)
+                    self.tabla_puntuaciones.item(row, col).setFont(font)
+            self.tabla_puntuaciones.setColumnWidth(0, 100)  # Position
+            self.tabla_puntuaciones.setColumnWidth(1, 300)  # Name
+            self.tabla_puntuaciones.setColumnWidth(2, 150)  # Points
+            self.tabla_puntuaciones.setColumnWidth(3, 200)  # Date
+
+            self.tabla_puntuaciones.sortByColumn(2, Qt.DescendingOrder)
+
+        except Exception as e:
+            print(f"error al cargar puntuaciones")
+            self.tabla_puntuaciones.setRowCount(1)
+            error_item = QTableWidgetItem("Error cargando puntuaciones")
+            error_item.setTextAlignment(Qt.AlignCenter)
+            self.tabla_puntuaciones.setItem(0, 0, error_item)
+            self.tabla_puntuaciones.setSpan(0, 0, 1, 4)
+
 
     def regresar_principal(self):
         if self.ventana_principal is not None:
@@ -1172,22 +1315,12 @@ class Ventanaconfiguracion(GradientWindow):
         self.setMinimumSize(900, 800)
         self.showMaximized()
 
-        self.nombre_input = QLineEdit(self)
-        self.nombre_input.setPlaceholderText("Ingresa tu nombre")
-        self.nombre_input.setFont(QFont("Arial", 18))
-        self.nombre_input.setFixedWidth(400)
-
         self.ip_input = QLineEdit(self)
         self.ip_input.setFont(QFont("Arial", 18))
         self.ip_input.setFixedWidth(400)
         self.ip_input.setReadOnly(True)
         self.ip_input.setText(obtener_ip_local())
 
-        btn_guardar = QPushButton("GUARDAR", self)
-        btn_guardar.setFont(QFont("Arial", 16))
-        btn_guardar.setFixedSize(200, 80)
-        btn_guardar.setStyleSheet("background-color: #4caf50; color: white; border-radius: 10px;")
-        btn_guardar.clicked.connect(self.guardar_datos)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -1211,50 +1344,11 @@ class Ventanaconfiguracion(GradientWindow):
 
         layout = QVBoxLayout()
         layout.addWidget(label)
-        layout.addWidget(self.nombre_input, alignment=Qt.AlignCenter)
         layout.addWidget(self.ip_input, alignment=Qt.AlignCenter)
-        layout.addWidget(btn_guardar, alignment=Qt.AlignCenter)
-        layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
         layout.addWidget(btn_musica, alignment=Qt.AlignCenter)
-
+        layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
 
         central.setLayout(layout)
-    def guardar_datos(self):
-        nombre = self.nombre_input.text().strip()
-        ip = self.ip_input.text().strip()
-
-        if not nombre:
-            QMessageBox.warning(self, "Advertencia", "Debes de ingresar un nombre.")
-            return
-        con = sqlite3.connect("configuracion.db")
-        cur = con.cursor()
-        cur.execute("""
-                    CREATE TABLE IF NOT EXISTS configuracion (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        nombre TEXT NOT NULL,
-                        ip TEXT NOT NULL
-                    )
-                """)
-        cur.execute("DELETE FROM configuracion")  # solo se guarda uno
-        cur.execute("INSERT INTO configuracion (nombre, ip) VALUES (?, ?)", (nombre, ip))
-        con.commit()
-        con.close()
-
-        QMessageBox.information(self, "Éxito", "Datos guardados correctamente.")
-
-    def cargar_datos_guardados(self):
-        try:
-            conn = sqlite3.connect("configuracion.db")
-            cursor = conn.cursor()
-            cursor.execute("SELECT nombre, ip FROM configuracion LIMIT 1")
-            fila = cursor.fetchone()
-            conn.close()
-
-            if fila:
-                self.nombre_input.setText(fila[0])
-                self.ip_input.setText(fila[1])
-        except Exception:
-            pass
 
     def apagar_musica(self):
         if hasattr(self, "player") and self.player.isPlaying():
