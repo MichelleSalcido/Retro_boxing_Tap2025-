@@ -43,6 +43,10 @@ def obtener_ip_local():
         s.close()
     return ip
 
+# ==================================================
+# BASE DATOS
+# ==================================================
+
 def inicializar_db():
     con = sqlite3.connect("confiuracion.db")
     cur = con.cursor()
@@ -83,6 +87,20 @@ def obtener_configuracion_guardada():
     except Exception:
         pass
     return "", ""
+
+def guardar_puntuacion(nombre, puntos):
+    con = sqlite3.connect("configuracion.db")
+    cur = con.cursor()
+    cur.execute("""
+            CREATE TABLE IF NOT EXISTS puntuaciones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                puntos INTEGER NOT NULL
+            )
+        """)
+    cur.execute("INSERT INTO puntuaciones (nombre, puntos) VALUES (?, ?)", (nombre, puntos))
+    con.commit()
+    con.close()
 
 # ==================================================
 # CLASES PARA SERVIDOR
@@ -149,14 +167,14 @@ class Clientejuego(QObject):
 # Clases del juego (Boxing)
 # ==================================================
 class Player:
-    WIDTH = 40
-    HEIGHT = 60
-    SPEED = 10
-    PUNCH_RANGE = 20
+    WIDTH =100
+    HEIGHT = 150
+    SPEED = 20
+    PUNCH_RANGE = 60
     PUNCH_DURATION = 200  # ms
     SHAKE_DURATION = 300  # ms para sacudida tras golpe
 
-    def __init__(self, x, y, color, keys, name=""):
+    def __init__(self, x, y, color, keys, sprite_idle, sprite_punch, name=""):
         self.x = x
         self.y = y
         self.color = color
@@ -171,15 +189,34 @@ class Player:
         self.shake_offset = QPointF(0, 0)
         self.hit_flash_alpha = 0
 
+        self.sprite_idle = self.load_sprite(sprite_idle, color)
+        self.sprite_punch = self.load_sprite(sprite_punch, color.darker(150))
+
+    def load_sprite(self, path, default_color):
+        if os.path.exists(path):
+            pixmap = QPixmap(path)
+            if not pixmap.isNull():
+                return pixmap.scaled(self.width, self.height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+        pixmap = QPixmap(self.width, self.height)
+        pixmap.fill(default_color)
+        painter = QPainter(pixmap)
+        painter.setPen(Qt.black)
+        painter.drawRect(0, 0, self.width - 1, self.height - 1)
+        painter.end()
+        return pixmap
+
     def rect(self):
-        return QRect(self.x, self.y, self.width, self.height)
+        return QRect(int(self.x), int(self.y), self.width, self.height)
 
     def punch_rect(self):
         if self.is_punching:
-            if self.color == QColor(200, 50, 50):
-                return QRect(self.x + self.width, self.y + 10, Player.PUNCH_RANGE, 20)
-            else:
-                return QRect(self.x - Player.PUNCH_RANGE, self.y + 10, Player.PUNCH_RANGE, 20)
+            if self.color == QColor(200, 50, 50):  # Jugador 1
+                return QRect(int(self.x + self.width), int(self.y + self.height / 3),
+                             self.PUNCH_RANGE, int(self.height / 3))
+            else:  # Jugador 2
+                return QRect(int(self.x - self.PUNCH_RANGE), int(self.y + self.height / 3),
+                             self.PUNCH_RANGE, int(self.height / 3))
         return QRect(0, 0, 0, 0)
 
     def move(self, direction, bounds):
@@ -215,12 +252,12 @@ class Player:
                 self.shake_offset = QPointF(0, 0)
                 self.hit_flash_alpha = 0
             else:
-                self.shake_offset = QPointF(random.randint(-2, 2), random.randint(-2, 2))
+                self.shake_offset = QPointF(random.randint(-3, 3), random.randint(-3, 3))
                 self.hit_flash_alpha = max(0, 255 - int(255 * elapsed / Player.SHAKE_DURATION))
 
 
 class ImpactEffect:
-    MAX_RADIUS = 30
+    MAX_RADIUS = 40
     DURATION = 400
 
     def __init__(self, x, y):
@@ -250,7 +287,7 @@ class BoxingGame(QWidget):
     def __init__(self, player1_name="Jugador 1", player2_name="Jugador 2"):
         super().__init__()
         self.setWindowTitle("Retro Fight - Partida")
-        self.setFixedSize(800, 400)
+        self.setFixedSize(1200, 700)
         self.setFocusPolicy(Qt.StrongFocus)
 
         self.player1 = Player(200, 300, QColor(200, 50, 50), {
@@ -885,47 +922,14 @@ class Ventanapuntuaciones(GradientWindow):
         central = QWidget()
         self.setCentralWidget(central)
 
-        label = QLabel("LISTA DE RECORDS", self)
-        label.setAlignment(Qt.AlignCenter)
-        label.setFont(QFont("Arial", 24, QFont.Bold))
-        label.setStyleSheet("color: #ffffff;")
+        titulo = QLabel("LISTA DE RECORDS", self)
+        titulo.setAlignment(Qt.AlignCenter)
+        titulo.setFont(QFont("Arial", 24, QFont.Bold))
+        titulo.setStyleSheet("color: white; font-size: 30px; font-weight: bold;")
 
-        self.tabla_puntuaciones = QTableWidget(self)
-        self.tabla_puntuaciones.setColumnCount(2)
-        self.tabla_puntuaciones.setHorizontalHeaderLabels(["Jugador", "Puntuación"])
-        self.tabla_puntuaciones.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tabla_puntuaciones.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
-        self.tabla_puntuaciones.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
-        self.tabla_puntuaciones.setFixedSize(800, 400)
-        self.tabla_puntuaciones.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.tabla_puntuaciones.setColumnWidth(0, 400)
-        self.tabla_puntuaciones.setColumnWidth(1, 385)
-
-        self.tabla_puntuaciones.setStyleSheet("""
-        QTableWidget {
-                background-color: rgba(0, 0, 0, 0);  /* fondo completamente transparente */
-                color: white;
-                border: none;
-                gridline-color: white;
-            }
-            QHeaderView::section {
-                background-color: rgba(0, 0, 0, 80);  /* encabezado semi transparente */
-                color: white;
-                font-weight: bold;
-            }
-            QTableWidget::item {
-                background-color: rgba(255, 255, 255, 30);  /* celdas semi transparentes */
-            }
-        """)
-
-        self.llenar_tabla_dummy()
-
-        tabla_container = QWidget()
-        tabla_layout = QHBoxLayout()
-        tabla_layout.addStretch()
-        tabla_layout.addWidget(self.tabla_puntuaciones)
-        tabla_layout.addStretch()
-        tabla_container.setLayout(tabla_layout)
+        self.label_puntuaciones = QLabel()
+        self.label_puntuaciones.setAlignment(Qt.AlignTop)
+        self.label_puntuaciones.setStyleSheet("color: white; font-size: 18px; margin: 20px;")
 
         btn_regreso = QPushButton("REGRESAR", self)
         btn_regreso.setFont(QFont("Arial", 16))
@@ -934,24 +938,34 @@ class Ventanapuntuaciones(GradientWindow):
         btn_regreso.clicked.connect(self.regresar_principal)
 
         layout = QVBoxLayout()
-        layout.addWidget(label)
-        layout.addWidget(self.tabla_puntuaciones)
-        layout.setAlignment(Qt.AlignCenter) 
-        layout.addWidget(tabla_container, alignment=Qt.AlignCenter)
-        layout.addWidget(tabla_container, alignment=Qt.AlignCenter)
+        layout.addWidget(titulo)
+        layout.addWidget(self.label_puntuaciones)
+        layout.setAlignment(Qt.AlignCenter)
         layout.addWidget(btn_regreso, alignment=Qt.AlignCenter)
 
         central.setLayout(layout)
 
-    def llenar_tabla_dummy(self):
-        datos=[
-            ("Jimena", 1200),
-            ("Miechelle", 950)
-        ]
-        self.tabla_puntuaciones.setRowCount(len(datos))
-        for fila, (nombre, puntaje) in enumerate(datos):
-            self.tabla_puntuaciones.setItem(fila, 0, QTableWidgetItem(nombre))
-            self.tabla_puntuaciones.setItem(fila, 1, QTableWidgetItem(str(puntaje)))
+        self.mostrar_puntuaciones()
+
+    def mostrar_puntuaciones(self):
+        con = sqlite3.connect("configuracion.db")
+        cur = con.cursor()
+        cur.execute("""
+                SELECT nombre, puntos FROM puntuaciones
+                ORDER BY puntos DESC
+                LIMIT 10
+            """)
+        resultados = cur.fetchall()
+        con.close()
+
+        if resultados:
+            texto = ""
+            for idx, (nombre, puntos) in enumerate(resultados, start=1):
+                texto += f"{idx}. {nombre} - {puntos} puntos\n"
+        else:
+            texto = "No hay puntuaciones guardadas."
+
+        self.label_puntuaciones.setText(texto)
 
     def regresar_principal(self):
         if self.ventana_principal is not None:
@@ -1150,9 +1164,14 @@ class Juego(QMainWindow):
 
     def iniciar_juego(self):
         # Abre directamente la ventana de Retro Fight sin pedir nombres.
-        self.ventana_juego = Ventanajuego(ventana_principal=self)
-        self.ventana_juego.show()
-        self.hide()
+        try:
+            self.ventana_juego = Ventanajuego(ventana_principal=self)
+            self.ventana_juego.show()
+            self.hide()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo iniciar el juego:\n{e}")
+            print("Error al iniciar el juego:", e)
 
     def acerca_de(self):
         QMessageBox.information(self, "Acerca de", "Retro Fight\n Juego creado por las\n -Increibles\n -Talentosas\n -Y creativas\n Inges Michelle y Jimena  ")
