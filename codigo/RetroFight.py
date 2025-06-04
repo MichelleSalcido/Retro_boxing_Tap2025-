@@ -1074,10 +1074,10 @@ class Juego(QMainWindow):
         self.showMaximized()
 
         # Mostrar mensaje de bienvenida
-        dialogo_bienv = QMessageBox(self)
-        dialogo_bienv.setWindowTitle("Bienvenido")
-        dialogo_bienv.setText("Retro Fight\nJuego realizado por:\nJimena Muñoz\nMichelle Salcido")
-        dialogo_bienv.exec()
+        #dialogo_bienv = QMessageBox(self)
+        #dialogo_bienv.setWindowTitle("Bienvenido")
+        #dialogo_bienv.setText("Retro Fight\nJuego realizado por:\nJimena Muñoz\nMichelle Salcido")
+        #dialogo_bienv.exec()
 
         self.inicializar_musica()
         # Se conserva el fondo de imagen en la ventana principal, como estaba.
