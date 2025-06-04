@@ -1,3 +1,4 @@
+import json
 import sys
 import os
 import random
@@ -138,6 +139,23 @@ class Servidorjuego(QObject):
     def enviar_datos(self, datos: bytes):
         if self.socket_cliente:
             self.socket_cliente.write(datos)
+
+    def enviar_estado_juego(self, juego):
+        if self.socket_cliente:
+            data = {
+                "type": "game_state",
+                "player1": {
+                    "x": juego.player1.x,
+                    "y": juego.player1.y,
+                    "health": juego.player1.health
+                },
+                "player2": {
+                    "x": juego.player2.x,
+                    "y": juego.player2.y,
+                    "health": juego.player2.health
+                }
+            }
+            self.enviar_datos(json.dumps(data).encode())
 
 class Clientejuego(QObject):
     conectado = Signal()
@@ -686,18 +704,20 @@ class GradientWindow(QMainWindow):
 # Ventana para ingresar nombres de jugadores
 # ============================================
 class VentanaNombres(GradientWindow):
-    def __init__(self, ventana_anterior):
+    def __init__(self, ventana_anterior, is_local = True):
         # Gradiente de azul oscuro a azul (en hexadecimal)
         super().__init__(gradient_start="#000428", gradient_end="#004e92")
         self.ventana_anterior = ventana_anterior
-        self.setWindowTitle("Nombres de jugadores")
+        self.is_local = is_local
+        self.setWindowTitle("Nombres de jugadores" if is_local else "Conectar a partida")
         self.setMinimumSize(800, 600)
         self.showMaximized()
 
         central = QWidget()
         self.setCentralWidget(central)
 
-        label = QLabel("INGRESE LOS NOMBRES DE LOS JUGADORES:")
+        label_text = "INGRESE LOS NOMBRES DE LOS JUGADORES:" if is_local else "CONECTARSE A PARTIDA"
+        label = QLabel(label_text, self)
         label.setFont(QFont("Arial", 26, QFont.Bold))
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("color: #ffffff;")
@@ -713,13 +733,23 @@ class VentanaNombres(GradientWindow):
         self.input_jugador2.setFont(QFont("Arial", 18))
         self.input_jugador2.setAlignment(Qt.AlignCenter)
         self.input_jugador2.setStyleSheet("padding: 8px; border: 2px solid #bbb; border-radius: 5px;")
+        self.input_jugador2.setVisible(is_local)
 
-        btn_comenzar = QPushButton("Comenzar juego")
+        self.ip_input = QLineEdit()
+        self.ip_input.setPlaceholderText("IP del servidor")
+        self.ip_input.setFont(QFont("Arial", 18))
+        self.ip_input.setAlignment(Qt.AlignCenter)
+        self.ip_input.setStyleSheet("padding: 8px; border: 2px solid #bbb; border-radius: 5px;")
+        self.ip_input.setVisible(not is_local)
+        if not is_local:
+            self.ip_input.setText(obtener_ip_local())
+
+        btn_comenzar = QPushButton("Comenzar juego" if is_local else "Conectar", self)
         btn_comenzar.setFont(QFont("Arial", 18, QFont.Bold))
         btn_comenzar.setStyleSheet("background-color: #4caf50; color: white; padding: 10px; border-radius: 5px;")
         btn_comenzar.clicked.connect(self.comenzar_juego)
 
-        btn_regresar = QPushButton("Regresar")
+        btn_regresar = QPushButton("Regresar", self)
         btn_regresar.setFont(QFont("Arial", 16))
         btn_regresar.setStyleSheet("background-color: #f44336; color: white; padding: 8px; border-radius: 5px;")
         btn_regresar.clicked.connect(self.regresar)
@@ -729,7 +759,8 @@ class VentanaNombres(GradientWindow):
         layout.addWidget(label)
         layout.addSpacing(20)
         layout.addWidget(self.input_jugador1)
-        layout.addWidget(self.input_jugador2)
+        if is_local:
+            layout.addWidget(self.input_jugador2)
         layout.addSpacing(20)
         layout.addWidget(btn_comenzar, alignment=Qt.AlignCenter)
         layout.addWidget(btn_regresar, alignment=Qt.AlignCenter)
@@ -740,15 +771,45 @@ class VentanaNombres(GradientWindow):
     def comenzar_juego(self):
         nombre1 = self.input_jugador1.text()
         nombre2 = self.input_jugador2.text()
-        if not nombre1 or not nombre2:
-            QMessageBox.warning(self, "Error", "Ingrese ambos nombres")
+        if not nombre1:
+            QMessageBox.warning(self, "Error", "Ingrese su nombre")
             return
+        if self.is_local:
+            nombre2 = self.input_jugador2.text().strip()
+            if not nombre2:
+                QMessageBox.warning(self, "Error", "Ingrese ambos nombres")
+                return
+
+            #juego local
+            self.ventana_juego = BoxingGame(nombre1, nombre2)
+            self.ventana_juego.show()
+        else:
+            # Network game
+            ip_servidor = self.ip_input.text().strip()
+            if not ip_servidor:
+                QMessageBox.warning(self, "Error", "Ingrese la IP del servidor")
+                return
+            self.cliente = Clientejuego(ip_servidor, 12345)
+            self.cliente.conectado.connect(self.on_conexion_exitosa)
+            self.cliente.error_conexion.connect(self.on_error_conexion)
+
+            QMessageBox.information(self, "Conectando", f"Conectando a {ip_servidor}...")
 
         # Se crea la ventana de juego con los nombres ingresados
         self.ventana_juego = BoxingGame(nombre1, nombre2)
         self.ventana_juego.show()
         self.ventana_anterior.hide()
         self.close()
+
+    def on_conexion_exitosa(self):
+        QMessageBox.information(self, "Éxito", "Conexión establecida")
+        # Here you would create the network game window
+        nombre = self.input_jugador1.text()
+        self.ventana_juego = NetworkBoxingGame(nombre, self.cliente)
+        self.ventana_juego.show()
+
+    def on_error_conexion(self, mensaje):
+        QMessageBox.critical(self, "Error", f"No se pudo conectar: {mensaje}")
 
     def regresar(self):
         self.close()
@@ -784,13 +845,13 @@ class Ventanajuego(GradientWindow):
         btn_unirse.setFont(QFont("Arial", 16))
         btn_unirse.setFixedSize(200, 80)
         btn_unirse.setStyleSheet("background-color: #9c27b0; color: white; border-radius: 5px;")
-        btn_unirse.clicked.connect(self.crear_partida)
+        btn_unirse.clicked.connect(self.unirse_partida)
 
         btn_crear = QPushButton("CREAR PARTIDA", self)
         btn_crear.setFont(QFont("Arial", 16))
         btn_crear.setFixedSize(200, 80)
         btn_crear.setStyleSheet("background-color: #2786b0; color: white; border-radius: 5px;")
-        btn_crear.clicked.connect(self.unirse_partida)
+        btn_crear.clicked.connect(self.crear_partida_local)
 
         layout = QVBoxLayout()
         layout.addWidget(label)
@@ -805,15 +866,99 @@ class Ventanajuego(GradientWindow):
             self.ventana_principal.show()
         self.close()
 
-    def unirse_partida(self):
-        self.ventana_nombres = VentanaNombres(ventana_anterior=self)
+    def crear_partida_local(self):
+        self.ventana_nombres = VentanaNombres(ventana_anterior=self, is_local=True)
         self.ventana_nombres.show()
         self.hide()
 
-    def crear_partida(self):
-        self.ventana_crear = Ventanacrearpartida(ventana_principal=self)
-        self.ventana_crear.show()
+    def unirse_partida(self):
+        self.ventana_nombres = VentanaNombres(ventana_anterior=self, is_local=False)
+        self.ventana_nombres.show()
         self.hide()
+
+# ============================================
+# clase juego en red
+# ============================================
+class NetworkBoxingGame(BoxingGame):
+    def __init__(self, player_name, cliente):
+        super().__init__(player_name, "Esperando oponente...")
+        self.cliente = cliente
+        self.player_name = player_name
+        self.is_host = False
+        self.opponent_name = ""
+
+        # Connect signals
+        self.cliente.datos_recibidos.connect(self.on_datos_recibidos)
+
+        # Send player info to server
+        self.send_player_info()
+
+    def send_player_info(self):
+        data = {
+            "type": "player_info",
+            "name": self.player_name
+        }
+        self.cliente.enviar_datos(json.dumps(data).encode())
+
+    def on_datos_recibidos(self, datos):
+        try:
+            data = json.loads(datos.decode())
+            if data["type"] == "player_info":
+                self.opponent_name = data["name"]
+                self.player2.name = self.opponent_name
+                self.health_bar2.setFormat(f"{self.player2.name} - Vida: %p%")
+            elif data["type"] == "game_state":
+                self.update_game_state(data)
+            elif data["type"] == "player_move":
+                self.update_opponent_position(data)
+            elif data["type"] == "player_punch":
+                self.opponent_punch()
+
+        except Exception as e:
+            print("Error processing network data:", e)
+
+
+    def keyPressEvent(self, event):
+        super().keyPressEvent(event)
+
+        # Send movement data over network
+        if event.key() in (self.player1.keys['left'], self.player1.keys['right'],
+                           self.player1.keys['up'], self.player1.keys['down']):
+            data = {
+                "type": "player_move",
+                "x": self.player1.x,
+                "y": self.player1.y
+            }
+            self.cliente.enviar_datos(json.dumps(data).encode())
+
+        # Send punch data over network
+        if event.key() == self.player1.keys['punch']:
+            data = {
+                "type": "player_punch"
+            }
+            self.cliente.enviar_datos(json.dumps(data).encode())
+
+        def update_opponent_position(self, data):
+            self.player2.x = data["x"]
+            self.player2.y = data["y"]
+            self.update()
+
+        def opponent_punch(self):
+            self.player2.start_punch()
+            self.update()
+
+            def update_game_state(self, data):
+                # Update both players' positions and health
+                self.player1.x = data["player1"]["x"]
+                self.player1.y = data["player1"]["y"]
+                self.player1.health = data["player1"]["health"]
+
+                self.player2.x = data["player2"]["x"]
+                self.player2.y = data["player2"]["y"]
+                self.player2.health = data["player2"]["health"]
+
+                self.update()
+
 
 # ============================================
 # Ventana para unirse partida CORREGIR
