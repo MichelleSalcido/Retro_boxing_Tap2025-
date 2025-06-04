@@ -24,6 +24,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Esto es la carpeta 'cod
 RUTA_MUSICA = os.path.join(BASE_DIR, "music", "fondo2.mp3")
 RUTA_FONDO = os.path.join(BASE_DIR, "imagenes", "fondo_inicio.jpg")
 RUTA_ICONMUSICA = os.path.join(BASE_DIR, "imagenes", "musica.png")
+CAMPANA = os.path.join(BASE_DIR, "music", "campana.mp3")
+ROUND1 = os.path.join(BASE_DIR, "music", "round1.mp3")
+ROUND2 = os.path.join(BASE_DIR, "music", "round2.mp3")
+ROUND3 = os.path.join(BASE_DIR, "music", "round3.mp3")
 
 # Sprites de jugadores
 SPRITE_PLAYER1_IDLE = os.path.join(BASE_DIR, "imagenes", "player1_idle.png")
@@ -87,6 +91,7 @@ def obtener_configuracion_guardada():
     except Exception:
         pass
     return "", ""
+
 
 def guardar_puntuacion(nombre, puntos):
     con = sqlite3.connect("configuracion.db")
@@ -314,7 +319,7 @@ class BoxingGame(QWidget):
         self.round_timer = BoxingGame.ROUND_TIME
         self.round_active = False
         self.round_count = 1
-        self.max_rounds = 10
+        self.max_rounds = 3
         self.score_p1 = 0
         self.score_p2 = 0
         self.setup_ui()
@@ -374,6 +379,28 @@ class BoxingGame(QWidget):
         self.timer_label.setStyleSheet("color: white; background-color: rgba(0,0,0,0.5); border-radius: 10px;")
         self.timer_label.setAlignment(Qt.AlignCenter)
 
+        #barra progreso tiempo
+        self.time_progress = QProgressBar(self)
+        self.time_progress.setGeometry(400, 130, 400, 25)
+        self.time_progress.setRange(0, BoxingGame.ROUND_TIME)
+        self.time_progress.setValue(self.round_timer)
+        self.time_progress.setFormat("Tiempo restante")
+        self.time_progress.setStyleSheet("""
+                   QProgressBar {
+                       border: 2px solid grey;
+                       border-radius: 5px;
+                       text-align: center;
+                       color: white;
+                       font-size: 14px;
+                       height: 25px;
+                       background-color: #222;
+                   }
+                   QProgressBar::chunk {
+                       background-color: #ffa500;  /* naranja */
+                       width: 10px;
+                   }
+               """)
+
         #boton inicio
         self.start_button = QPushButton("Iniciar Round", self)
         self.start_button.setGeometry(500, 600, 200, 50)
@@ -422,6 +449,10 @@ class BoxingGame(QWidget):
         self.round_label.setStyleSheet("color: gold; background-color: rgba(0, 0, 0, 150); border-radius: 15px;")
         self.round_label.hide()
 
+        self.campana_sound = QSoundEffect()
+        self.campana_sound.setSource(QUrl.fromLocalFile(CAMPANA))
+        self.campana_sound.setVolume(0.5)
+
     def start_round(self):
         self.round_timer = BoxingGame.ROUND_TIME
         self.round_active = True
@@ -430,6 +461,10 @@ class BoxingGame(QWidget):
         self.health_bar1.setValue(self.player1.health)
         self.health_bar2.setValue(self.player2.health)
         self.timer_label.setText(f"Tiempo: {self.round_timer}")
+
+        self.time_progress.setMaximum(BoxingGame.ROUND_TIME)
+        self.time_progress.setValue(self.round_timer)
+
         self.start_button.setEnabled(False)
         self.countdown_timer.start(1000)
         self.player1.x, self.player1.y = 200, 300
@@ -441,6 +476,7 @@ class BoxingGame(QWidget):
         if self.round_timer > 0:
             self.round_timer -= 1
             self.timer_label.setText(f"Tiempo: {self.round_timer}")
+            self.time_progress.setValue(self.round_timer)
         else:
             self.end_round("Tiempo terminado, ¡empate!")
 
@@ -454,12 +490,19 @@ class BoxingGame(QWidget):
         elif result_text == f"{self.player2.name} gana!":
             self.score_p2 += 1
 
-        self.show_round_message(result_text, 2500)
-        self.round_count += 1
+        self.campana_sound.play()
+
+        if self.round_count >= self.max_rounds:  # Ya llegó al máximo
+            self.end_game()
+        else:
+            self.round_count += 1  # Solo aumenta si no terminó el juego
+            self.start_round()
+
         self.update_score_label()
 
-        if self.round_count > self.max_rounds:
-            self.show_final_result()
+    def end_game(self):
+        self.show_final_result()  # Puedes reutilizar tu método que muestra el ganador
+        self.start_button.setEnabled(False)
 
     def update_score_label(self):
         print(f"Ronda {self.round_count - 1} - {self.player1.name}: {self.score_p1} | {self.player2.name}: {self.score_p2}")
