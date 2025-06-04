@@ -704,13 +704,13 @@ class Ventanajuego(GradientWindow):
         btn_unirse.setFont(QFont("Arial", 16))
         btn_unirse.setFixedSize(200, 80)
         btn_unirse.setStyleSheet("background-color: #9c27b0; color: white; border-radius: 5px;")
-        btn_unirse.clicked.connect(self.unirse_partida)
+        btn_unirse.clicked.connect(self.crear_partida)
 
         btn_crear = QPushButton("CREAR PARTIDA", self)
         btn_crear.setFont(QFont("Arial", 16))
         btn_crear.setFixedSize(200, 80)
         btn_crear.setStyleSheet("background-color: #2786b0; color: white; border-radius: 5px;")
-        btn_crear.clicked.connect(self.crear_partida)
+        btn_crear.clicked.connect(self.unirse_partida)
 
         layout = QVBoxLayout()
         layout.addWidget(label)
